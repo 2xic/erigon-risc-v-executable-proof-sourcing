@@ -15,6 +15,9 @@ Project repository for implementing the [Erigon: RISCV Executable Proof Sourcing
 - [Erigon](https://github.com/erigontech/erigon)
 - [OpenVm](https://blog.openvm.dev/)
 
+### Testing Dependencies
+- [Unicorn](https://www.unicorn-engine.org/) for RISC-V emulation.
+
 ### ZkVm
 - [Ground Up Guide: zkEVM, EVM Compatibility & Rollups](https://www.immutable.com/blog/ground-up-guide-zkevm-evm-compatibility-rollups) - a bit outdate, but had some good context on how some ZkEVMs (used to) works. 
 - [Long-term L1 execution layer proposal: replace the EVM with RISC-V ](https://ethereum-magicians.org/t/long-term-l1-execution-layer-proposal-replace-the-evm-with-risc-v/23617)
