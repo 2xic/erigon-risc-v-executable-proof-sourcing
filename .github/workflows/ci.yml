@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code with submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'  # or your preferred version
+    
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+    
+    - name: Install Rust 1.85 toolchain for cargo-openvm
+      run: rustup toolchain install 1.85
+    
+    - name: Install system dependencies for Unicorn
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          pkg-config \
+          libc6-dev
+    
+    - name: Install Unicorn Engine
+      run: |
+        git clone https://github.com/unicorn-engine/unicorn.git
+        cd unicorn
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        sudo make install
+        sudo ldconfig
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('transpiler/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-unicorn
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+    
+    - name: Cache Unicorn build
+      uses: actions/cache@v3
+      with:
+        path: |
+          unicorn/build
+        key: ${{ runner.os }}-unicorn-${{ hashFiles('unicorn/**') }}
+        restore-keys: |
+          ${{ runner.os }}-unicorn-
+    
+    - name: Install cargo-openvm
+      run: |
+        cargo +1.85 install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
+    
+    - name: Download Go dependencies
+      working-directory: ./transpiler
+      run: go mod download
+    
+    - name: Run Go tests
+      working-directory: ./transpiler
+      run: go test -v ./...
