@@ -1,4 +1,4 @@
 [submodule "transpiler/erigon"]
 	path = transpiler/erigon
 	url = https://github.com/2xic-speedrun/erigon
-	branch = 57c6de5da65517cd329f39b319f6c643b0bbb038
+	commit = db2452f7580d49a787cd640ca499ac85562c6cc7
