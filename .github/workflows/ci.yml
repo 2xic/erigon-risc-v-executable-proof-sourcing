@@ -37,7 +37,8 @@ jobs:
           build-essential \
           cmake \
           pkg-config \
-          libc6-dev
+          libc6-dev \
+          gcc-riscv64-linux-gnu
     
     - name: Install Unicorn Engine
       run: |

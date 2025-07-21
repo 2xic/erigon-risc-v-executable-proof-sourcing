@@ -60,7 +60,6 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 			operands: []string{"sp", "sp", "-8"},
 		})
 		constant := uint64(op.arguments[0])
-		fmt.Printf("arugments %d\n", constant)
 		tr.instructions = append(tr.instructions, Instruction{
 			name:     "li",
 			operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},

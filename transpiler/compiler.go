@@ -13,9 +13,6 @@ type AssemblyFile struct {
 
 func (f *AssemblyFile) assembleToBytecode() ([]byte, error) {
 	assembly := f.content
-	fmt.Println(("==="))
-	fmt.Println((assembly))
-	fmt.Println(("==="))
 	tmpFile, err := os.CreateTemp("", "*.s")
 	if err != nil {
 		return nil, err
