@@ -125,6 +125,7 @@ jobs:
     
     - name: Run Rust fmt check
       run: cargo fmt --all -- --check
+      working-directory: ./transpiler/prover
     
     - name: Run Clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
