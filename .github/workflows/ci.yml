@@ -55,12 +55,14 @@ jobs:
       uses: actions/cache@v4
       with:
         path: |
-          unicorn/build
-        key: ${{ runner.os }}-unicorn-${{ hashFiles('unicorn/**') }}
+          unicorn
+          /usr/local/lib/libunicorn*
+          /usr/local/include/unicorn
+        key: ${{ runner.os }}-unicorn-v1
         restore-keys: |
           ${{ runner.os }}-unicorn-
     
-    - name: Install Unicorn Engine
+    - name: Clone and Build Unicorn Engine
       if: steps.cache-unicorn.outputs.cache-hit != 'true'
       run: |
         git clone https://github.com/unicorn-engine/unicorn.git
@@ -75,8 +77,7 @@ jobs:
     - name: Install cached Unicorn
       if: steps.cache-unicorn.outputs.cache-hit == 'true'
       run: |
-        cd unicorn/build
-        sudo make install
+        # Restore symlinks and update library cache
         sudo ldconfig
     
     - name: Cache Go modules
