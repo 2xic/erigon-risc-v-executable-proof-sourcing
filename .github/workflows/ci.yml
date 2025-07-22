@@ -128,11 +128,13 @@ jobs:
     
     - name: Run Clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
-    
+      working-directory: ./transpiler/prover
+      
     # Testing
     - name: Run Go tests
       working-directory: ./transpiler
       run: go test -v ./...
     
     - name: Run Rust tests
+      working-directory: ./transpiler/prover
       run: cargo test --all-features
