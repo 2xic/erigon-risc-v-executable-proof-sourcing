@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path"
@@ -84,7 +85,6 @@ func setupWorkspace(newRiscContent []byte) (string, error) {
 	}
 
 	if err := extractEmbedFS(zkVMToolchain, tmpDir); err != nil {
-		os.RemoveAll(tmpDir)
 		return "", err
 	}
 
@@ -119,14 +119,21 @@ func extractFile(fsys embed.FS, srcPath, dstPath string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() {
+		if err := src.Close(); err != nil {
+			log.Printf("Failed close src %v", err)
+		}
+	}()
 
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
-
+	defer func() {
+		if err := dst.Close(); err != nil {
+			log.Printf("Failed close dst %v", err)
+		}
+	}()
 	_, err = io.Copy(dst, src)
 	return err
 }

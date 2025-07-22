@@ -1,0 +1,17 @@
+.PHONY: lint lint-go lint-rust
+
+lint: lint-go lint-rust
+	echo "done"
+
+lint-go:
+	cd transpiler && golangci-lint run
+
+lint-rust:
+	cd transpiler/prover && cargo clippy --all-targets --all-features -- -D warnings
+	cd transpiler/prover && cargo fmt
+
+tests:
+	cd transpiler && go test -v ./...
+
+remove_go_cache:
+	rm -rf ~/.cache/go-build

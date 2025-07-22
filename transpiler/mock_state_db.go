@@ -88,10 +88,19 @@ func (s *MockState) SetNonce(addr libcommon.Address, nonce uint64) error {
 }
 
 func (s *MockState) SetupContract(addr libcommon.Address, code []byte, balance *uint256.Int) error {
-	s.CreateAccount(addr, true)
-	s.SetCode(addr, code)
+	err := s.CreateAccount(addr, true)
+	if err != nil {
+		return err
+	}
+	err = s.SetCode(addr, code)
+	if err != nil {
+		return err
+	}
 	if balance != nil {
-		s.AddBalance(addr, balance, tracing.BalanceChangeUnspecified)
+		err = s.AddBalance(addr, balance, tracing.BalanceChangeUnspecified)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

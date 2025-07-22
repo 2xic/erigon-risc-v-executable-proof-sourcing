@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 )
@@ -17,13 +18,20 @@ func (f *AssemblyFile) assembleToBytecode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			log.Printf("Failed to remove temporary file %s: %v", tmpFile.Name(), err)
+		}
+	}()
 
 	_, err = tmpFile.WriteString(assembly)
 	if err != nil {
 		return nil, err
 	}
-	tmpFile.Close()
+	err = tmpFile.Close()
+	if err != nil {
+		return nil, err
+	}
 
 	objFile := tmpFile.Name() + ".o"
 	cmd := exec.Command("riscv64-linux-gnu-as", "-o", objFile, tmpFile.Name())
@@ -33,14 +41,21 @@ func (f *AssemblyFile) assembleToBytecode() ([]byte, error) {
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to compile: %s", stderr.String())
 	}
-	defer os.Remove(objFile)
+	defer func() {
+		if err := os.Remove(objFile); err != nil {
+			log.Printf("Failed to remove temporary file %s: %v", objFile, err)
+		}
+	}()
 
 	binFile := tmpFile.Name() + ".bin"
 	cmd = exec.Command("riscv64-linux-gnu-objcopy", "-O", "binary", objFile, binFile)
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
-	defer os.Remove(binFile)
-
+	defer func() {
+		if err := os.Remove(binFile); err != nil {
+			log.Printf("Failed to remove temporary file %s: %v", binFile, err)
+		}
+	}()
 	return os.ReadFile(binFile)
 }

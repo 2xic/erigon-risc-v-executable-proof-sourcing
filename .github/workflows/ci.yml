@@ -6,12 +6,18 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  GO_VERSION: '1.21'
+  RUST_VERSION: 'stable'
+  RUST_NIGHTLY_VERSION: 'nightly-2025-02-14'
+  RUST_185_VERSION: '1.85'
+
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code with submodules
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
@@ -20,15 +26,19 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'  # or your preferred version
+        go-version: ${{ env.GO_VERSION }}
     
     - name: Set up Rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
-        toolchain: stable
+        toolchain: ${{ env.RUST_VERSION }}
+        components: rustfmt, clippy
     
-    - name: Install Rust 1.85 toolchain for cargo-openvm
-      run: rustup toolchain install 1.85
+    - name: Install Rust toolchains
+      run: |
+        rustup install ${{ env.RUST_NIGHTLY_VERSION }}
+        rustup component add rust-src --toolchain ${{ env.RUST_NIGHTLY_VERSION }}
+        rustup toolchain install ${{ env.RUST_185_VERSION }}
     
     - name: Install system dependencies for Unicorn
       run: |
@@ -40,7 +50,18 @@ jobs:
           libc6-dev \
           gcc-riscv64-linux-gnu
     
+    - name: Cache Unicorn build
+      id: cache-unicorn
+      uses: actions/cache@v4
+      with:
+        path: |
+          unicorn/build
+        key: ${{ runner.os }}-unicorn-${{ hashFiles('unicorn/**') }}
+        restore-keys: |
+          ${{ runner.os }}-unicorn-
+    
     - name: Install Unicorn Engine
+      if: steps.cache-unicorn.outputs.cache-hit != 'true'
       run: |
         git clone https://github.com/unicorn-engine/unicorn.git
         cd unicorn
@@ -51,18 +72,25 @@ jobs:
         sudo make install
         sudo ldconfig
     
+    - name: Install cached Unicorn
+      if: steps.cache-unicorn.outputs.cache-hit == 'true'
+      run: |
+        cd unicorn/build
+        sudo make install
+        sudo ldconfig
+    
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('transpiler/go.sum') }}
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('transpiler/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
     
     - name: Cache Rust dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -70,27 +98,40 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-unicorn
+        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-unicorn
         restore-keys: |
-          ${{ runner.os }}-cargo-
-    
-    - name: Cache Unicorn build
-      uses: actions/cache@v3
-      with:
-        path: |
-          unicorn/build
-        key: ${{ runner.os }}-unicorn-${{ hashFiles('unicorn/**') }}
-        restore-keys: |
-          ${{ runner.os }}-unicorn-
+          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
     
     - name: Install cargo-openvm
       run: |
-        cargo +1.85 install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
+        cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
     
     - name: Download Go dependencies
       working-directory: ./transpiler
       run: go mod download
     
+    # Linting
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        working-directory: ./transpiler
+        args: --timeout=5m
+    
+    - name: Run Go vet
+      working-directory: ./transpiler
+      run: go vet ./...
+    
+    - name: Run Rust fmt check
+      run: cargo fmt --all -- --check
+    
+    - name: Run Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+    
+    # Testing
     - name: Run Go tests
       working-directory: ./transpiler
       run: go test -v ./...
+    
+    - name: Run Rust tests
+      run: cargo test --all-features

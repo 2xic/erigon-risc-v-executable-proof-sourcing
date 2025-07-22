@@ -1,0 +1,9 @@
+run:
+  skip-dirs:
+    - erigon
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet

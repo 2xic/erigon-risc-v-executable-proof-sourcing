@@ -29,7 +29,11 @@ func (t *TestRunner) Execute() (*AssemblyFile, error) {
 	contractAddr := libcommon.HexToAddress("0x1234567890123456789012345678901234567890")
 
 	runner := NewSimpleTracer()
-	runner.DeployContract(contractAddr, t.program, uint256.NewInt(1000))
+	err := runner.DeployContract(contractAddr, t.program, uint256.NewInt(1000))
+	if err != nil {
+		return nil, err
+	}
+
 	transpiler, _, err := runner.ExecuteContract(contractAddr, nil, 100000)
 	if err != nil {
 		return nil, err
@@ -59,11 +63,20 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	stackAddr := uint64(0x7fff0000)
 	memSize := uint64(0x10000)
 
-	mu.MemMap(codeAddr, memSize)
-	mu.MemMap(stackAddr, memSize)
+	err = mu.MemMap(codeAddr, memSize)
+	if err != nil {
+		return nil, err
+	}
+	err = mu.MemMap(stackAddr, memSize)
+	if err != nil {
+		return nil, err
+	}
 
 	stackTop := stackAddr + memSize - 16
-	mu.RegWrite(uc.RISCV_REG_SP, stackTop)
+	err = mu.RegWrite(uc.RISCV_REG_SP, stackTop)
+	if err != nil {
+		return nil, err
+	}
 
 	allStackSnapshots := make([][]uint64, 0)
 	executionResults := &ExecutionResult{
@@ -101,12 +114,24 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		return nil, err
 	}
 
-	mu.MemWrite(codeAddr, bytecode)
-	mu.Start(codeAddr, codeAddr+uint64(len(bytecode)))
+	err = mu.MemWrite(codeAddr, bytecode)
+	if err != nil {
+		return nil, err
+	}
+	err = mu.Start(codeAddr, codeAddr+uint64(len(bytecode)))
+	if err != nil {
+		return nil, err
+	}
 
-	mu.HookDel(hook)
-	mu.Close()
+	err = mu.HookDel(hook)
+	if err != nil {
+		return nil, err
+	}
+	err = mu.Close()
 
+	if err != nil {
+		return nil, err
+	}
 	return executionResults, nil
 }
 
