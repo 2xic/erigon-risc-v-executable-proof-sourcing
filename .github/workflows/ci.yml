@@ -57,9 +57,16 @@ jobs:
         path: |
           unicorn-install
         key: ${{ runner.os }}-unicorn-v1-f8c6db950420d2498700245269d0b647697c5666
+        restore-keys: |
+          ${{ runner.os }}-unicorn-v1-
+
+    - name: Debug cache output
+      run: |
+        echo "Cache hit value: '${{ steps.cache-unicorn.outputs.cache-hit }}'"
+        echo "Cache hit type: $(echo '${{ steps.cache-unicorn.outputs.cache-hit }}' | wc -c)"
 
     - name: Clone and Build Unicorn Engine
-      if: steps.cache-unicorn.outputs.cache-hit == 'false'
+      if: steps.cache-unicorn.outputs.cache-hit != 'true'
       run: |
         git clone https://github.com/unicorn-engine/unicorn.git
         cd unicorn
