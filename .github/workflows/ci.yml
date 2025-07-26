@@ -83,16 +83,17 @@ jobs:
         sudo ldconfig
     
     - name: Cache Go modules
+      id: cache-go-dependencies
       uses: actions/cache@v4
       with:
         path: |
-          ~/.cache/go-build
           ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('transpiler/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-${{ env.GO_VERSION }}-
     
     - name: Cache Rust dependencies
+      id: cache-rust-dependencies
       uses: actions/cache@v4
       with:
         path: |
@@ -106,10 +107,12 @@ jobs:
           ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
     
     - name: Install cargo-openvm
+      if: steps.cache-rust-dependencies.outputs.cache-hit == 'false'
       run: |
         cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
     
     - name: Download Go dependencies
+      if: steps.cache-go-dependencies.outputs.cache-hit == 'false'
       working-directory: ./transpiler
       run: go mod download
     
