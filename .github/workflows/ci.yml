@@ -65,6 +65,8 @@ jobs:
     - name: Clone and Build Unicorn Engine
       if: steps.cache-unicorn.outputs.cache-hit != 'true'
       run: |
+        # In case the cache restoring failed, we delete the directory
+        rm -rf unicorn
         git clone https://github.com/unicorn-engine/unicorn.git
         cd unicorn
         mkdir build
