@@ -80,7 +80,16 @@ jobs:
       run: |
         echo "LD_LIBRARY_PATH=${{ github.workspace }}/unicorn-install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
         echo "PKG_CONFIG_PATH=${{ github.workspace }}/unicorn-install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-        
+        echo "CGO_CFLAGS=-I${{ github.workspace }}/unicorn-install/include" >> $GITHUB_ENV
+        echo "CGO_LDFLAGS=-L${{ github.workspace }}/unicorn-install/lib -lunicorn" >> $GITHUB_ENV
+
+    - name: Verify Unicorn installation
+      run: |
+        ls -la ${{ github.workspace }}/unicorn-install/lib/
+        ls -la ${{ github.workspace }}/unicorn-install/include/
+        pkg-config --exists unicorn && echo "pkg-config found unicorn" || echo "pkg-config did not find unicorn"
+        echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+
     - name: Cache Go modules
       id: cache-go-dependencies
       uses: actions/cache@v4
@@ -106,12 +115,12 @@ jobs:
           ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
     
     - name: Install cargo-openvm
-      if: steps.cache-rust-dependencies.outputs.cache-hit == 'false'
+      if: steps.cache-rust-dependencies.outputs.cache-hit != 'true'
       run: |
         cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
     
     - name: Download Go dependencies
-      if: steps.cache-go-dependencies.outputs.cache-hit == 'false'
+      if: steps.cache-go-dependencies.outputs.cache-hit != 'true'
       working-directory: ./transpiler
       run: go mod download
     
