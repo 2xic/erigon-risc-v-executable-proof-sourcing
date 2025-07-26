@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"math/big"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
+	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"github.com/erigontech/erigon/params"
@@ -43,8 +43,7 @@ func (t *StateTracer) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, sc
 }
 
 func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, opDepth int, err error) {
-	fmt.Printf("PC:%d %s Gas:%d len(Stack):%d", pc, op.String(), gas, scope.Stack.Len())
-	fmt.Println()
+	log.Debug("PC:%d %s Gas:%d len(Stack):%d\n", pc, op.String(), gas, scope.Stack.Len())
 
 	numPop := t.jumpTable[op].NumPop
 	numPush := t.jumpTable[op].NumPush
