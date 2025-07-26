@@ -6,14 +6,36 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type AssemblyFile struct {
-	content string
+	instructions []Instruction
 }
 
-func (f *AssemblyFile) assembleToBytecode() ([]byte, error) {
-	assembly := f.content
+func (a *AssemblyFile) toDebugFile() string {
+	return a.toFile(true)
+}
+
+func (a *AssemblyFile) toZkFile() string {
+	return a.toFile(false)
+}
+
+func (a *AssemblyFile) toFile(withEbreak bool) string {
+	instructions := make([]string, 0)
+	for i := range a.instructions {
+		if !withEbreak && a.instructions[i].name == "EBREAK" {
+			continue
+		}
+		instructions = append(instructions, fmt.Sprintf("%s %s", a.instructions[i].name, strings.Join(a.instructions[i].operands, ", ")))
+	}
+
+	content := strings.Join(instructions, "\n")
+	return content
+}
+
+func (f *AssemblyFile) toBytecode() ([]byte, error) {
+	assembly := f.toDebugFile()
 	tmpFile, err := os.CreateTemp("", "*.s")
 	if err != nil {
 		return nil, err
@@ -58,4 +80,20 @@ func (f *AssemblyFile) assembleToBytecode() ([]byte, error) {
 		}
 	}()
 	return os.ReadFile(binFile)
+}
+
+func (f *AssemblyFile) toToolChainCompatibleAssembly() (string, error) {
+	format := `
+.global execute
+execute:
+	# Save stack
+	mv s2, sp
+
+	%s
+
+	# Restore stack
+	mv sp, s2
+	ret	
+	`
+	return fmt.Sprintf(format, f.toZkFile()), nil
 }

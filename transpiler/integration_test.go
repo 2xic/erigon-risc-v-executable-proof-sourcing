@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
 	"testing"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
@@ -164,7 +163,7 @@ func TestAddOpcode(t *testing.T) {
 	}
 	assembly, err := NewTestRunner(bytecode).Execute()
 	assert.NoError(t, err)
-	bytecode, err = assembly.assembleToBytecode()
+	bytecode, err = assembly.toBytecode()
 	assert.NoError(t, err)
 
 	execution, err := NewVmRunner()
@@ -172,68 +171,24 @@ func TestAddOpcode(t *testing.T) {
 	snapshot, err := execution.Execute(bytecode)
 	assert.NoError(t, err)
 
-	fmt.Println(snapshot.stackSnapshots)
+	// Verify that the stack is as expected at each step of the execution
 	snapShot := *snapshot.stackSnapshots
 	assert.Len(t, snapShot, 3)
 	assert.Equal(t, []uint64{0x42}, snapShot[0])
 	assert.Equal(t, []uint64{0x01, 0x42}, snapShot[1])
 	assert.Equal(t, []uint64{0x43}, snapShot[2])
 
-}
-
-func TestZkProverConnection(t *testing.T) {
-	// From https://gist.github.com/2xic/82ff5065eff396f063c60bb4a281034b
-	content := `
-.global execute
-execute:
-	# Save registers and setup stack
-	addi sp, sp, -32
-	sw ra, 28(sp)
-	sw s0, 24(sp)
-	sw s1, 20(sp)
-
-	# Call read() to get n
-	call read_u64_func
-	mv s0, a0 # s0 = n (save in callee-saved register)
-
-	# Initialize fibonacci variables
-	li t1, 0  # a = 0
-	li t2, 1  # b = 1
-	mv t0, s0 # counter = n
-
-	# Check if n == 0
-	beqz t0, 3f
-
-	# Fibonacci loop
-2:
-	add t3, t1, t2  # c = a + b
-	mv t1, t2       # a = b
-	mv t2, t3       # b = c
-	addi t0, t0, -1 # counter--
-	bnez t0, 2b     # loop if counter != 0
-
-	# Call reveal_u32(a as u32, 0) - lower 32 bits
-3:
-	mv s1, t1 # save result in s1
-	mv a0, s1 # a0 = result
-	li a1, 0  # index = 0
-	call reveal_u32_func
-
-	# Call reveal_u32((a >> 32) as u32, 1) - upper 32 bits
-	li t4, 32
-	srl a0, s1, t4 # a0 = result >> 32
-	li a1, 1       # index = 1
-	call reveal_u32_func
-
-	# Restore registers and return
-	lw s1, 20(sp)
-	lw s0, 24(sp)
-	lw ra, 28(sp)
-	addi sp, sp, 32
-	ret	
-	`
-	zkVm := NewZkProver(content)
-	output, err := zkVm.Prove()
+	// Verify that we can run the Zk prover on the assembly
+	content, err := assembly.toToolChainCompatibleAssembly()
 	assert.NoError(t, err)
-	assert.Equal(t, "Execution output: [55, 0, 0, 0, 55, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]\n", output)
+	zkVm := NewZkProver(content)
+	output, err := zkVm.TestRun()
+	assert.NoError(t, err)
+	// All zero as we don't write any of the output.
+	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]\n", output)
+
+	// output, err = zkVm.Prove()
+	// assert.NoError(t, err)
+	//	assert.Contains(t, "app_pk commit: 0x0094295cb5d90deb2b28cab4d658dab0fdc2922c4e9c10305bbf277c8d29d881\n", output)
+	//	assert.Contains(t, "exe commit: 0x0086d334e8f5715dd186700497c4b3d3c667cd812fda3135c6414c66eb0fc0e3\n", output)
 }

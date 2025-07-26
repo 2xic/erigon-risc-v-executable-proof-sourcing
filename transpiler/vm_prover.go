@@ -53,19 +53,21 @@ func (cli *Cli) Execute(arg ...string) (string, error) {
 }
 
 func (zkVm *ZkProver) Prove() (string, error) {
-	workSpace, err := setupWorkspace([]byte(zkVm.content))
+	cli, err := zkVm.SetupExecution()
 	if err != nil {
 		return "", err
 	}
 
-	cli := NewCli(workSpace)
-
-	_, err = cli.Execute("cargo", "openvm", "build")
+	output, err := cli.Execute("cargo", "openvm", "prove", "app", "--input", "0x010A00000000000000")
 	if err != nil {
 		return "", err
 	}
 
-	_, err = cli.Execute("cargo", "openvm", "keygen")
+	return string(output), nil
+}
+
+func (zkVm *ZkProver) TestRun() (string, error) {
+	cli, err := zkVm.SetupExecution()
 	if err != nil {
 		return "", err
 	}
@@ -76,6 +78,26 @@ func (zkVm *ZkProver) Prove() (string, error) {
 	}
 
 	return string(output), nil
+}
+
+func (zkVm *ZkProver) SetupExecution() (*Cli, error) {
+	workSpace, err := setupWorkspace([]byte(zkVm.content))
+	if err != nil {
+		return nil, err
+	}
+
+	cli := NewCli(workSpace)
+
+	_, err = cli.Execute("cargo", "openvm", "build")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = cli.Execute("cargo", "openvm", "keygen")
+	if err != nil {
+		return nil, err
+	}
+	return &cli, nil
 }
 
 func setupWorkspace(newRiscContent []byte) (string, error) {

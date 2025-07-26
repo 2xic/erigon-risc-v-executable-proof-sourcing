@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/erigontech/erigon/core/vm"
 )
@@ -34,7 +33,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 	switch op.opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, Instruction{
-			name:     "ld",
+			name:     "lw",
 			operands: []string{"t0", "0(sp)"},
 		})
 		tr.instructions = append(tr.instructions, Instruction{
@@ -42,7 +41,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 			operands: []string{"sp", "sp", "8"},
 		})
 		tr.instructions = append(tr.instructions, Instruction{
-			name:     "ld",
+			name:     "lw",
 			operands: []string{"t1", "0(sp)"},
 		})
 		tr.instructions = append(tr.instructions, Instruction{
@@ -65,7 +64,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 			operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},
 		})
 		tr.instructions = append(tr.instructions, Instruction{
-			name:     "sd",
+			name:     "sw",
 			operands: []string{"t0", "0(sp)"},
 		})
 	case vm.STOP:
@@ -82,13 +81,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 }
 
 func (tr *Transpiler) toAssembly() *AssemblyFile {
-	instructions := make([]string, 0)
-	for i := range tr.instructions {
-		instructions = append(instructions, fmt.Sprintf("%s %s", tr.instructions[i].name, strings.Join(tr.instructions[i].operands, ", ")))
-	}
-
-	content := strings.Join(instructions, "\n")
 	return &AssemblyFile{
-		content: content,
+		instructions: tr.instructions,
 	}
 }

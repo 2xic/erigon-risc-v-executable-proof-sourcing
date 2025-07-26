@@ -10,7 +10,7 @@ lint-rust:
 	cd transpiler/prover && cargo clippy --all-targets --all-features -- -D warnings
 	cd transpiler/prover && cargo fmt
 
-tests:
+test:
 	cd transpiler && go test -v ./...
 
 remove_go_cache:
