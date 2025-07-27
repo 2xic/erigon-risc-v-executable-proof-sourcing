@@ -11,6 +11,7 @@ env:
   RUST_VERSION: 'stable'
   RUST_NIGHTLY_VERSION: 'nightly-2025-02-14'
   RUST_185_VERSION: '1.85'
+  UNICORN_COMMIT: 'f8c6db950420d2498700245269d0b647697c5666'
 
 jobs:
   ci:
@@ -24,10 +25,12 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: ${{ env.GO_VERSION }}
-    
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: transpiler/go.sum
+
     - name: Set up Rust
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
@@ -56,7 +59,7 @@ jobs:
       with:
         path: |
           unicorn-install
-        key: ${{ runner.os }}-unicorn-v1-f8c6db950420d2498700245269d0b647697c5666
+        key: ${{ runner.os }}-unicorn-v1-${{ env.UNICORN_COMMIT }}
         restore-keys: |
           ${{ runner.os }}-unicorn-v1-
 
@@ -70,7 +73,7 @@ jobs:
       run: |
         git clone https://github.com/unicorn-engine/unicorn.git
         cd unicorn
-        git checkout f8c6db950420d2498700245269d0b647697c5666
+        git checkout ${{ env.UNICORN_COMMIT }}
         mkdir build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/unicorn-install
         make -j$(nproc)
@@ -117,12 +120,9 @@ jobs:
     - name: Install cargo-openvm
       if: steps.cache-rust-dependencies.outputs.cache-hit != 'true'
       run: |
-        cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
-    
-    - name: Download Go dependencies
-      if: steps.cache-go-dependencies.outputs.cache-hit != 'true'
-      working-directory: ./transpiler
-      run: go mod download
+        if ! command -v cargo-openvm &> /dev/null; then
+          cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
+        fi
     
     # Linting
     - name: Install golangci-lint
