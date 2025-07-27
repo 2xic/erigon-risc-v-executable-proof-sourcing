@@ -12,6 +12,7 @@ env:
   RUST_NIGHTLY_VERSION: 'nightly-2025-02-14'
   RUST_185_VERSION: '1.85'
   UNICORN_COMMIT: 'f8c6db950420d2498700245269d0b647697c5666'
+  GOLANGCI_LINT_VERSION: v2.1
 
 jobs:
   ci:
@@ -125,7 +126,7 @@ jobs:
     - name: Install golangci-lint
       uses: golangci/golangci-lint-action@v8
       with:
-        version: ${{ env.GO_VERSION }}
+        version: ${{ env.GOLANGCI_LINT_VERSION }}
         working-directory: ./transpiler
         args: --timeout=5m
     
