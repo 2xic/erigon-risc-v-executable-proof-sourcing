@@ -7,8 +7,8 @@ lint-go:
 	cd transpiler && golangci-lint run
 
 lint-rust:
-	cd transpiler/prover && cargo clippy --all-targets --all-features -- -D warnings
-	cd transpiler/prover && cargo fmt
+	cd prover/openvm && cargo clippy --all-targets --all-features -- -D warnings
+	cd prover/openvm && cargo fmt
 
 test:
 	cd transpiler && go test -v ./...

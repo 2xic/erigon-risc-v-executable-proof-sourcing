@@ -112,8 +112,8 @@ jobs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-          transpiler/prover/target/
-        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-unicorn
+          prover/openvm/target/
+        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
     
@@ -138,11 +138,11 @@ jobs:
     
     - name: Run Rust fmt check
       run: cargo fmt --all -- --check
-      working-directory: ./transpiler/prover
+      working-directory: ./prover/openvm
     
     - name: Run Clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
-      working-directory: ./transpiler/prover
+      working-directory: ./prover/openvm
       
     # Testing
     - name: Run Go tests
@@ -150,5 +150,5 @@ jobs:
       run: go test -v ./...
     
     - name: Run Rust tests
-      working-directory: ./transpiler/prover
+      working-directory: ./prover/openvm
       run: cargo test --all-features

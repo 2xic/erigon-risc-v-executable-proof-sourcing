@@ -1,6 +1,8 @@
 package main
 
 import (
+	"erigon-transpiler-risc-v/prover"
+
 	"fmt"
 	"strconv"
 
@@ -14,58 +16,53 @@ type evmInstructionMetadata struct {
 	numPop    uint64
 }
 
-type Instruction struct {
-	name     string
-	operands []string
-}
-
 type Transpiler struct {
-	instructions []Instruction
+	instructions []prover.Instruction
 }
 
 func NewTranspiler() *Transpiler {
 	return &Transpiler{
-		instructions: make([]Instruction, 0),
+		instructions: make([]prover.Instruction, 0),
 	}
 }
 
 func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 	switch op.opcode {
 	case vm.ADD:
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "lw",
-			operands: []string{"t0", "0(sp)"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "lw",
+			Operands: []string{"t0", "0(sp)"},
 		})
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "addi",
-			operands: []string{"sp", "sp", "8"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "addi",
+			Operands: []string{"sp", "sp", "8"},
 		})
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "lw",
-			operands: []string{"t1", "0(sp)"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "lw",
+			Operands: []string{"t1", "0(sp)"},
 		})
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "add",
-			operands: []string{"t2", "t0", "t1"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "add",
+			Operands: []string{"t2", "t0", "t1"},
 		})
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "sw",
-			operands: []string{"t2", "0(sp)"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "sw",
+			Operands: []string{"t2", "0(sp)"},
 		})
 	case vm.PUSH1:
 		// Move the stack pointer
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "addi",
-			operands: []string{"sp", "sp", "-8"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "addi",
+			Operands: []string{"sp", "sp", "-8"},
 		})
 		constant := uint64(op.arguments[0])
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "li",
-			operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "li",
+			Operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},
 		})
-		tr.instructions = append(tr.instructions, Instruction{
-			name:     "sw",
-			operands: []string{"t0", "0(sp)"},
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "sw",
+			Operands: []string{"t0", "0(sp)"},
 		})
 	case vm.STOP:
 		// no operation opcode
@@ -74,14 +71,14 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 		panic(fmt.Errorf("unimplemented opcode %d", uint64(op.opcode)))
 	}
 	// TODO: only add this for testing, not production.
-	tr.instructions = append(tr.instructions, Instruction{
-		name:     "EBREAK",
-		operands: []string{},
+	tr.instructions = append(tr.instructions, prover.Instruction{
+		Name:     "EBREAK",
+		Operands: []string{},
 	})
 }
 
-func (tr *Transpiler) toAssembly() *AssemblyFile {
-	return &AssemblyFile{
-		instructions: tr.instructions,
+func (tr *Transpiler) toAssembly() *prover.AssemblyFile {
+	return &prover.AssemblyFile{
+		Instructions: tr.instructions,
 	}
 }

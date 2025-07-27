@@ -1,4 +1,4 @@
-package main
+package prover
 
 import (
 	"bytes"
@@ -10,7 +10,12 @@ import (
 )
 
 type AssemblyFile struct {
-	instructions []Instruction
+	Instructions []Instruction
+}
+
+type Instruction struct {
+	Name     string
+	Operands []string
 }
 
 func (a *AssemblyFile) toDebugFile() string {
@@ -23,18 +28,18 @@ func (a *AssemblyFile) toZkFile() string {
 
 func (a *AssemblyFile) toFile(skipEbreak bool) string {
 	instructions := make([]string, 0)
-	for i := range a.instructions {
-		if skipEbreak && a.instructions[i].name == "EBREAK" {
+	for i := range a.Instructions {
+		if skipEbreak && a.Instructions[i].Name == "EBREAK" {
 			continue
 		}
-		instructions = append(instructions, fmt.Sprintf("%s %s", a.instructions[i].name, strings.Join(a.instructions[i].operands, ", ")))
+		instructions = append(instructions, fmt.Sprintf("%s %s", a.Instructions[i].Name, strings.Join(a.Instructions[i].Operands, ", ")))
 	}
 
 	content := strings.Join(instructions, "\n")
 	return content
 }
 
-func (f *AssemblyFile) toBytecode() ([]byte, error) {
+func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 	assembly := f.toDebugFile()
 	tmpFile, err := os.CreateTemp("", "*.s")
 	if err != nil {
@@ -82,7 +87,7 @@ func (f *AssemblyFile) toBytecode() ([]byte, error) {
 	return os.ReadFile(binFile)
 }
 
-func (f *AssemblyFile) toToolChainCompatibleAssembly() (string, error) {
+func (f *AssemblyFile) ToToolChainCompatibleAssembly() (string, error) {
 	format := `
 .global execute
 execute:

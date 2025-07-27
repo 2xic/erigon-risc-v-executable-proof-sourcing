@@ -1,4 +1,4 @@
-package main
+package prover
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed prover/*
+//go:embed openvm/*
 var zkVMToolchain embed.FS
 
 type ZkProver struct {
@@ -110,7 +110,7 @@ func setupWorkspace(newRiscContent []byte) (string, error) {
 		return "", err
 	}
 
-	workspaceDirectory := path.Join(tmpDir, "prover")
+	workspaceDirectory := path.Join(tmpDir, "openvm")
 
 	riscPath := filepath.Join(workspaceDirectory, "src", "risc.asm")
 	if err := os.WriteFile(riscPath, newRiscContent, 0644); err != nil {

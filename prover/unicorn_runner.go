@@ -1,48 +1,17 @@
-package main
+package prover
 
 import (
 	"encoding/binary"
-
-	libcommon "github.com/erigontech/erigon-lib/common"
-	"github.com/holiman/uint256"
 
 	uc "github.com/unicorn-engine/unicorn/bindings/go/unicorn"
 )
 
 const EbreakInstr = 0x00100073
 
-type TestRunner struct {
-	program []byte
-}
-
-func NewTestRunner(program []byte) *TestRunner {
-	return &TestRunner{
-		program: program,
-	}
-}
-
-func (t *TestRunner) Execute() (*AssemblyFile, error) {
-	contractAddr := libcommon.HexToAddress("0x1234567890123456789012345678901234567890")
-
-	runner := NewSimpleTracer()
-	err := runner.DeployContract(contractAddr, t.program, uint256.NewInt(1000))
-	if err != nil {
-		return nil, err
-	}
-
-	transpiler, _, err := runner.ExecuteContract(contractAddr, nil, 100000)
-	if err != nil {
-		return nil, err
-	}
-
-	assembly := transpiler.toAssembly()
-	return assembly, nil
-}
-
 type VmRunner struct{}
 
 type ExecutionResult struct {
-	stackSnapshots *[][]uint64
+	StackSnapshots *[][]uint64
 }
 
 func NewVmRunner() (*VmRunner, error) {
@@ -76,7 +45,7 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 
 	allStackSnapshots := make([][]uint64, 0)
 	executionResults := &ExecutionResult{
-		stackSnapshots: &allStackSnapshots,
+		StackSnapshots: &allStackSnapshots,
 	}
 
 	hook, err := mu.HookAdd(uc.HOOK_CODE, func(mu uc.Unicorn, addr uint64, size uint32) {

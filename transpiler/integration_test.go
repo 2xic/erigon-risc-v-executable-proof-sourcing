@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"erigon-transpiler-risc-v/prover"
+
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/stretchr/testify/assert"
 )
@@ -15,25 +17,25 @@ func TestAddOpcode(t *testing.T) {
 	}
 	assembly, err := NewTestRunner(bytecode).Execute()
 	assert.NoError(t, err)
-	bytecode, err = assembly.toBytecode()
+	bytecode, err = assembly.ToBytecode()
 	assert.NoError(t, err)
 
-	execution, err := NewVmRunner()
+	execution, err := prover.NewVmRunner()
 	assert.NoError(t, err)
 	snapshot, err := execution.Execute(bytecode)
 	assert.NoError(t, err)
 
 	// Verify that the stack is as expected at each step of the execution
-	snapShot := *snapshot.stackSnapshots
+	snapShot := *snapshot.StackSnapshots
 	assert.Len(t, snapShot, 3)
 	assert.Equal(t, []uint64{0x42}, snapShot[0])
 	assert.Equal(t, []uint64{0x01, 0x42}, snapShot[1])
 	assert.Equal(t, []uint64{0x43}, snapShot[2])
 
 	// Verify that we can run the Zk prover on the assembly
-	content, err := assembly.toToolChainCompatibleAssembly()
+	content, err := assembly.ToToolChainCompatibleAssembly()
 	assert.NoError(t, err)
-	zkVm := NewZkProver(content)
+	zkVm := prover.NewZkProver(content)
 	output, err := zkVm.TestRun()
 	assert.NoError(t, err)
 	// All zero as we don't write any of the output.
