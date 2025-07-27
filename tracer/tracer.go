@@ -56,9 +56,8 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 		index := 0
 		for i := pc + 1; i <= pc+size; i++ {
 			arguments[index] = scope.Contract.Code[i]
-			index += 1
+			index++
 		}
-
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{

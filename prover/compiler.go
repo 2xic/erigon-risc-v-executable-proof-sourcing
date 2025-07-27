@@ -28,11 +28,12 @@ func (a *AssemblyFile) toZkFile() string {
 
 func (a *AssemblyFile) toFile(skipEbreak bool) string {
 	instructions := make([]string, 0)
-	for i := range a.Instructions {
-		if skipEbreak && a.Instructions[i].Name == "EBREAK" {
+	for _, instr := range a.Instructions {
+		if skipEbreak && instr.Name == "EBREAK" {
 			continue
 		}
-		instructions = append(instructions, fmt.Sprintf("%s %s", a.Instructions[i].Name, strings.Join(a.Instructions[i].Operands, ", ")))
+		stringified := fmt.Sprintf("%s %s", instr.Name, strings.Join(instr.Operands, ", "))
+		instructions = append(instructions, stringified)
 	}
 
 	content := strings.Join(instructions, "\n")
