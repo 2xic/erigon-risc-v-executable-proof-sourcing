@@ -10,17 +10,17 @@ import (
 	"github.com/erigontech/erigon/core/vm"
 )
 
-type Transpiler struct {
+type transpiler struct {
 	instructions []prover.Instruction
 }
 
-func NewTranspiler() *Transpiler {
-	return &Transpiler{
+func NewTranspiler() *transpiler {
+	return &transpiler{
 		instructions: make([]prover.Instruction, 0),
 	}
 }
 
-func (tr *Transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
+func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, prover.Instruction{
@@ -71,7 +71,7 @@ func (tr *Transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	})
 }
 
-func (tr *Transpiler) toAssembly() *prover.AssemblyFile {
+func (tr *transpiler) toAssembly() *prover.AssemblyFile {
 	return &prover.AssemblyFile{
 		Instructions: tr.instructions,
 	}

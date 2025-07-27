@@ -10,17 +10,17 @@ import (
 
 const CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"
 
-type TestRunner struct {
+type testRunner struct {
 	program []byte
 }
 
-func NewTestRunner(program []byte) *TestRunner {
-	return &TestRunner{
+func NewTestRunner(program []byte) *testRunner {
+	return &testRunner{
 		program: program,
 	}
 }
 
-func (t *TestRunner) Execute() (*prover.AssemblyFile, error) {
+func (t *testRunner) Execute() (*prover.AssemblyFile, error) {
 	contractAddr := libcommon.HexToAddress(CONTRACT_ADDRESS)
 
 	runner := tracer.NewSimpleTracer()
