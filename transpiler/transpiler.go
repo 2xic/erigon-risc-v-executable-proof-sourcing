@@ -62,7 +62,7 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 		// no operation opcode
 		return
 	default:
-		panic(fmt.Errorf("unimplemented opcode %d", uint64(op.Opcode)))
+		panic(fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode)))
 	}
 	// TODO: only add this for testing, not production.
 	tr.instructions = append(tr.instructions, prover.Instruction{

@@ -47,7 +47,7 @@ func (t *StateTracer) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, sc
 }
 
 func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, opDepth int, err error) {
-	log.Debug("PC:%d %s Gas:%d len(Stack):%d\n", pc, op.String(), gas, scope.Stack.Len())
+	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, op.String(), gas, scope.Stack.Len())
 
 	arguments := []byte{}
 	if op.IsPushWithImmediateArgs() {

@@ -2,6 +2,7 @@ package prover
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	uc "github.com/unicorn-engine/unicorn/bindings/go/unicorn"
 )
@@ -105,7 +106,7 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint64, error)
 	stackTop := stackBase + memSize - 16
 
 	if sp > stackTop {
-		return nil, nil
+		return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)
 	}
 	numEntries := (stackTop - sp) / 8
 	stack := make([]uint64, numEntries)
