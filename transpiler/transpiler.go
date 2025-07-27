@@ -49,7 +49,7 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 			Name:     "addi",
 			Operands: []string{"sp", "sp", "-8"},
 		})
-		constant := uint64(op.Arguments[0])
+		constant := uint8(op.Arguments[0])
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name:     "li",
 			Operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},
