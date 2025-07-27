@@ -14,17 +14,17 @@ type AssemblyFile struct {
 }
 
 func (a *AssemblyFile) toDebugFile() string {
-	return a.toFile(true)
-}
-
-func (a *AssemblyFile) toZkFile() string {
 	return a.toFile(false)
 }
 
-func (a *AssemblyFile) toFile(withEbreak bool) string {
+func (a *AssemblyFile) toZkFile() string {
+	return a.toFile(true)
+}
+
+func (a *AssemblyFile) toFile(skipEbreak bool) string {
 	instructions := make([]string, 0)
 	for i := range a.instructions {
-		if !withEbreak && a.instructions[i].name == "EBREAK" {
+		if skipEbreak && a.instructions[i].name == "EBREAK" {
 			continue
 		}
 		instructions = append(instructions, fmt.Sprintf("%s %s", a.instructions[i].name, strings.Join(a.instructions[i].operands, ", ")))
