@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const InstructionEBREAK = "EBREAK"
+
 type AssemblyFile struct {
 	Instructions []Instruction
 }
@@ -29,7 +31,7 @@ func (a *AssemblyFile) toZkFile() string {
 func (a *AssemblyFile) toFile(skipEbreak bool) string {
 	instructions := make([]string, 0)
 	for _, instr := range a.Instructions {
-		if skipEbreak && instr.Name == "EBREAK" {
+		if skipEbreak && instr.Name == InstructionEBREAK {
 			continue
 		}
 		stringified := fmt.Sprintf("%s %s", instr.Name, strings.Join(instr.Operands, ", "))
