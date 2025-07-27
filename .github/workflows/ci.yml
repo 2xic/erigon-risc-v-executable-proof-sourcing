@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.24.1'
+  RUST_VERSION: 'stable'
+  RUST_NIGHTLY_VERSION: 'nightly-2025-02-14'
+  RUST_185_VERSION: '1.85'
+  UNICORN_COMMIT: 'f8c6db950420d2498700245269d0b647697c5666'
+  GOLANGCI_LINT_VERSION: v2.1
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: transpiler/go.sum
+
+    - name: Set up Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        components: rustfmt, clippy
+    
+    - name: Install Rust toolchains
+      run: |
+        rustup install ${{ env.RUST_NIGHTLY_VERSION }}
+        rustup component add rust-src --toolchain ${{ env.RUST_NIGHTLY_VERSION }}
+        rustup toolchain install ${{ env.RUST_185_VERSION }}
+    
+    - name: Cache apt metadata
+      id: cache-apt-dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-cache-2025-01
+        restore-keys: |
+          ${{ runner.os }}-apt-cache-
+    
+    - name: Install system dependencies
+      if: steps.cache-apt-dependencies.outputs.cache-hit != 'true'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          pkg-config \
+          libc6-dev \
+          gcc-riscv64-linux-gnu
+    
+    - name: Cache Unicorn build
+      id: cache-unicorn
+      uses: actions/cache@v4
+      with:
+        path: |
+          unicorn-install
+        key: ${{ runner.os }}-unicorn-v1-${{ env.UNICORN_COMMIT }}
+        restore-keys: |
+          ${{ runner.os }}-unicorn-v1-
+
+    - name: Clone and Build Unicorn Engine
+      if: steps.cache-unicorn.outputs.cache-hit != 'true'
+      run: |
+        git clone https://github.com/unicorn-engine/unicorn.git
+        cd unicorn
+        git checkout ${{ env.UNICORN_COMMIT }}
+        mkdir build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/unicorn-install
+        make -j$(nproc)
+        make install
+
+    - name: Setup Unicorn paths
+      run: |
+        echo "LD_LIBRARY_PATH=${{ github.workspace }}/unicorn-install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        echo "PKG_CONFIG_PATH=${{ github.workspace }}/unicorn-install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+        echo "CGO_CFLAGS=-I${{ github.workspace }}/unicorn-install/include" >> $GITHUB_ENV
+        echo "CGO_LDFLAGS=-L${{ github.workspace }}/unicorn-install/lib -lunicorn" >> $GITHUB_ENV
+
+    - name: Cache Go modules
+      id: cache-go-dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('transpiler/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+    
+    - name: Cache Rust dependencies
+      id: cache-rust-dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          prover/openvm/target/
+        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
+    
+    - name: Install cargo-openvm
+      if: steps.cache-rust-dependencies.outputs.cache-hit != 'true'
+      run: |
+        if ! command -v cargo-openvm &> /dev/null; then
+          cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
+        fi
+    
+    # Linting
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: ${{ env.GOLANGCI_LINT_VERSION }}
+        working-directory: ./transpiler
+        args: --timeout=5m
+    
+    - name: Run Go vet
+      working-directory: ./transpiler
+      run: go vet ./...
+    
+    - name: Run Rust fmt check
+      run: cargo fmt --all -- --check
+      working-directory: ./prover/openvm
+    
+    - name: Run Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      working-directory: ./prover/openvm
+      
+    # Testing
+    - name: Run Go tests
+      working-directory: ./transpiler
+      run: go test -v ./...
+    
+    - name: Run Rust tests
+      working-directory: ./prover/openvm
+      run: cargo test --all-features
