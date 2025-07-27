@@ -2,10 +2,13 @@ package main
 
 import (
 	"erigon-transpiler-risc-v/prover"
+	"erigon-transpiler-risc-v/tracer"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/holiman/uint256"
 )
+
+const CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"
 
 type TestRunner struct {
 	program []byte
@@ -18,17 +21,21 @@ func NewTestRunner(program []byte) *TestRunner {
 }
 
 func (t *TestRunner) Execute() (*prover.AssemblyFile, error) {
-	contractAddr := libcommon.HexToAddress("0x1234567890123456789012345678901234567890")
+	contractAddr := libcommon.HexToAddress(CONTRACT_ADDRESS)
 
-	runner := NewSimpleTracer()
+	runner := tracer.NewSimpleTracer()
 	err := runner.DeployContract(contractAddr, t.program, uint256.NewInt(1000))
 	if err != nil {
 		return nil, err
 	}
 
-	transpiler, _, err := runner.ExecuteContract(contractAddr, nil, 100000)
+	instructions, _, err := runner.ExecuteContract(contractAddr, nil, 100000)
 	if err != nil {
 		return nil, err
+	}
+	transpiler := NewTranspiler()
+	for i := range instructions {
+		transpiler.AddInstruction(instructions[i])
 	}
 
 	assembly := transpiler.toAssembly()

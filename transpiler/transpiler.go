@@ -2,19 +2,13 @@ package main
 
 import (
 	"erigon-transpiler-risc-v/prover"
+	"erigon-transpiler-risc-v/tracer"
 
 	"fmt"
 	"strconv"
 
 	"github.com/erigontech/erigon/core/vm"
 )
-
-type evmInstructionMetadata struct {
-	opcode    vm.OpCode
-	arguments []byte
-	numPush   uint64
-	numPop    uint64
-}
 
 type Transpiler struct {
 	instructions []prover.Instruction
@@ -26,8 +20,8 @@ func NewTranspiler() *Transpiler {
 	}
 }
 
-func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
-	switch op.opcode {
+func (tr *Transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
+	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name:     "lw",
@@ -55,7 +49,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 			Name:     "addi",
 			Operands: []string{"sp", "sp", "-8"},
 		})
-		constant := uint64(op.arguments[0])
+		constant := uint64(op.Arguments[0])
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name:     "li",
 			Operands: []string{"t0", strconv.FormatUint(uint64(constant), 10)},
@@ -68,7 +62,7 @@ func (tr *Transpiler) AddInstruction(op *evmInstructionMetadata) {
 		// no operation opcode
 		return
 	default:
-		panic(fmt.Errorf("unimplemented opcode %d", uint64(op.opcode)))
+		panic(fmt.Errorf("unimplemented opcode %d", uint64(op.Opcode)))
 	}
 	// TODO: only add this for testing, not production.
 	tr.instructions = append(tr.instructions, prover.Instruction{

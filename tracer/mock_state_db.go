@@ -1,4 +1,4 @@
-package main
+package tracer
 
 import (
 	chain2 "github.com/erigontech/erigon-lib/chain"

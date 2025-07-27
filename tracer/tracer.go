@@ -1,4 +1,4 @@
-package main
+package tracer
 
 import (
 	"math/big"
@@ -11,19 +11,23 @@ import (
 	"github.com/holiman/uint256"
 )
 
+type EvmInstructionMetadata struct {
+	Opcode    vm.OpCode
+	Arguments []byte
+}
+
 // =============================================================================
 // STATE TRACER
 // =============================================================================
 
 type StateTracer struct {
-	jumpTable  *vm.JumpTable
-	transpiler *Transpiler
+	jumpTable       *vm.JumpTable
+	evmInstructions []*EvmInstructionMetadata
 }
 
 func NewStateTracer() *StateTracer {
 	return &StateTracer{
-		jumpTable:  nil,
-		transpiler: NewTranspiler(),
+		jumpTable: nil,
 	}
 }
 
@@ -45,9 +49,6 @@ func (t *StateTracer) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, sc
 func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, opDepth int, err error) {
 	log.Debug("PC:%d %s Gas:%d len(Stack):%d\n", pc, op.String(), gas, scope.Stack.Len())
 
-	numPop := t.jumpTable[op].NumPop
-	numPush := t.jumpTable[op].NumPush
-
 	arguments := []byte{}
 	if op.IsPushWithImmediateArgs() {
 		size := uint64(op) - uint64(vm.PUSH1-1)
@@ -60,11 +61,9 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 
 	}
 
-	t.transpiler.AddInstruction(&evmInstructionMetadata{
-		opcode:    op,
-		numPush:   uint64(numPush),
-		numPop:    uint64(numPop),
-		arguments: arguments,
+	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
+		Opcode:    op,
+		Arguments: arguments,
 	})
 }
 
@@ -109,8 +108,8 @@ func NewSimpleTracer() *SimpleTracer {
 	}
 
 	evm := vm.NewEVM(blockCtx, txCtx, state, params.TestChainConfig, vmConfig)
-	intrp := vm.NewEVMInterpreter(evm, evm.Config())
-	tracer.setJumpTable(intrp.JT)
+	in := vm.NewEVMInterpreter(evm, evm.Config())
+	tracer.setJumpTable(in.JT)
 
 	return &SimpleTracer{
 		state:  state,
@@ -123,10 +122,10 @@ func (tr *SimpleTracer) DeployContract(addr libcommon.Address, bytecode []byte, 
 	return tr.state.SetupContract(addr, bytecode, balance)
 }
 
-func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []byte, gasLimit uint64) (*Transpiler, uint64, error) {
+func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []byte, gasLimit uint64) ([]*EvmInstructionMetadata, uint64, error) {
 	caller := vm.AccountRef(libcommon.HexToAddress("0xabcd"))
 	_, gasLeft, err := tr.evm.Call(caller, contractAddr, input, gasLimit, uint256.NewInt(0), false)
-	return tr.tracer.transpiler, gasLimit - gasLeft, err
+	return tr.tracer.evmInstructions, gasLimit - gasLeft, err
 }
 
 func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash) (*uint256.Int, error) {
