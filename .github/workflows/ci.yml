@@ -43,7 +43,16 @@ jobs:
         rustup component add rust-src --toolchain ${{ env.RUST_NIGHTLY_VERSION }}
         rustup toolchain install ${{ env.RUST_185_VERSION }}
     
-    - name: Install system dependencies for Unicorn
+    - name: Cache apt metadata
+      uses: actions/cache@v4
+      with:
+        path: |
+          /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-cache-2025-01
+        restore-keys: |
+          ${{ runner.os }}-apt-cache-
+    
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -63,11 +72,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-unicorn-v1-
 
-    - name: Debug cache output
-      run: |
-        echo "Cache hit value: '${{ steps.cache-unicorn.outputs.cache-hit }}'"
-        echo "Cache hit type: $(echo '${{ steps.cache-unicorn.outputs.cache-hit }}' | wc -c)"
-
     - name: Clone and Build Unicorn Engine
       if: steps.cache-unicorn.outputs.cache-hit != 'true'
       run: |
@@ -85,13 +89,6 @@ jobs:
         echo "PKG_CONFIG_PATH=${{ github.workspace }}/unicorn-install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
         echo "CGO_CFLAGS=-I${{ github.workspace }}/unicorn-install/include" >> $GITHUB_ENV
         echo "CGO_LDFLAGS=-L${{ github.workspace }}/unicorn-install/lib -lunicorn" >> $GITHUB_ENV
-
-    - name: Verify Unicorn installation
-      run: |
-        ls -la ${{ github.workspace }}/unicorn-install/lib/
-        ls -la ${{ github.workspace }}/unicorn-install/include/
-        pkg-config --exists unicorn && echo "pkg-config found unicorn" || echo "pkg-config did not find unicorn"
-        echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 
     - name: Cache Go modules
       id: cache-go-dependencies
@@ -126,9 +123,9 @@ jobs:
     
     # Linting
     - name: Install golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v8
       with:
-        version: latest
+        version: ${{ env.GO_VERSION }}
         working-directory: ./transpiler
         args: --timeout=5m
     
