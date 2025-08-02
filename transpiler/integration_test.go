@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"erigon-transpiler-risc-v/prover"
@@ -57,6 +58,10 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.ADD)},
 		},
 		{
+			name:     "PUSH4",
+			bytecode: []byte{byte(vm.PUSH4), 0x42, 0x43, 0x42, 0x41},
+		},
+		{
 			name:     "ADD",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x2, byte(vm.ADD)},
 		},
@@ -65,13 +70,9 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x1, byte(vm.SLT)},
 		},
 		{
-			name:     "SLT",
-			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SLT)},
+			name:     "SHR",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SHR)},
 		},
-		// {
-		// 	name:     "SHR",
-		// 	bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SHR)},
-		// },
 		{
 			name:     "EQ",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.EQ)},
@@ -81,13 +82,74 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.EQ)},
 		},
 		{
-			name:     "GT",
-			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.EQ)},
+			name:     "LT",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.LT)},
 		},
 		{
-			name:     "LT",
-			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.EQ)},
+			name:     "GT",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.GT)},
 		},
+		{
+			name:     "JUMPDEST",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.JUMPDEST)},
+		},
+		{
+			name: "JUMPI",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0,
+				byte(vm.PUSH1), 10,
+				byte(vm.JUMPI),
+				byte(vm.PUSH1), 1,
+				byte(vm.PUSH1), 12,
+				byte(vm.JUMPI),
+				byte(vm.JUMPDEST),
+				byte(vm.INVALID),
+				byte(vm.JUMPDEST),
+				byte(vm.PUSH1), 1,
+			},
+		},
+		{
+			name:     "DUP1",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.DUP1), byte(vm.ADD)},
+		},
+		{
+			name:     "DUP2",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.DUP2), byte(vm.ADD)},
+		},
+		{
+			name:     "DUP3",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x0, byte(vm.DUP3), byte(vm.ADD)},
+		},
+		{
+			name:     "SWAP1",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.DUP2), byte(vm.SWAP1), byte(vm.ADD)},
+		},
+		{
+			name:     "SWAP2",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.DUP2), byte(vm.SWAP2), byte(vm.ADD)},
+		},
+		{
+			name:     "POP",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.DUP2), byte(vm.POP), byte(vm.ADD)},
+		},
+		{
+			name:     "MSTORE",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE)},
+		},
+		{
+			name:     "MLOAD",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE), byte(vm.PUSH0), byte(vm.MLOAD)},
+		},
+		{
+			name:     "ISZERO",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE), byte(vm.PUSH0), byte(vm.MLOAD), byte(vm.ISZERO)},
+		},
+
+		// Will not work as we don't support uint256 correctly
+		// {
+		// 	name:     "NOT",
+		// 	bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.NOT)},
+		// },
 	}
 
 	for _, tc := range tests {
@@ -106,7 +168,7 @@ func TestSimpleOpcodes(t *testing.T) {
 		snapShot := *snapshot.StackSnapshots
 		assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
 		for i := range evmSnapshot.Snapshots {
-			assert.Equal(t, evmSnapshot.Snapshots[i], snapShot[i])
+			assert.Equal(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
 		}
 	}
 }

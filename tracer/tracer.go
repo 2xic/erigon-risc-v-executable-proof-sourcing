@@ -61,7 +61,10 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 		}
 	}
 
-	snapshot := append([]uint256.Int(nil), scope.Stack.Data...)
+	snapshot := make([]uint256.Int, len(scope.Stack.Data))
+	for i := range len(scope.Stack.Data) {
+		snapshot[i] = scope.Stack.Data[i]
+	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
 		Opcode:        op,

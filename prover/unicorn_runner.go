@@ -30,6 +30,11 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	stackAddr := uint64(0x7fff0000)
 	memSize := uint64(0x10000)
 
+	err = mu.MemMap(0, memSize)
+	if err != nil {
+		return nil, err
+	}
+
 	err = mu.MemMap(codeAddr, memSize)
 	if err != nil {
 		return nil, err
@@ -111,7 +116,7 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, e
 	}
 	numEntries := (stackTop - sp) / 8
 	stack := make([]uint256.Int, numEntries)
-	for i := uint64(0); i < numEntries; i++ {
+	for i := range numEntries {
 		addr := sp + (i * 8)
 		data, err := mu.MemRead(addr, 8)
 		if err != nil {
