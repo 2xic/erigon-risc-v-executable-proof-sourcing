@@ -7,6 +7,7 @@ import (
 	"erigon-transpiler-risc-v/prover"
 
 	"github.com/erigontech/erigon/core/vm"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,9 +30,9 @@ func TestAddOpcode(t *testing.T) {
 	// Verify that the stack is as expected at each step of the execution
 	snapShot := *snapshot.StackSnapshots
 	assert.Len(t, snapShot, 3)
-	assert.Equal(t, []uint64{0x42}, snapShot[0])
-	assert.Equal(t, []uint64{0x01, 0x42}, snapShot[1])
-	assert.Equal(t, []uint64{0x43}, snapShot[2])
+	assert.Equal(t, []uint256.Int{*uint256.NewInt(0x42)}, snapShot[0])
+	assert.Equal(t, []uint256.Int{*uint256.NewInt(0x42), *uint256.NewInt(0x1)}, snapShot[1])
+	assert.Equal(t, []uint256.Int{*uint256.NewInt(0x43)}, snapShot[2])
 
 	// Verify that we can run the Zk prover on the assembly
 	content, err := assembly.ToToolChainCompatibleAssembly()
