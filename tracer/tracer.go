@@ -12,8 +12,9 @@ import (
 )
 
 type EvmInstructionMetadata struct {
-	Opcode    vm.OpCode
-	Arguments []byte
+	Opcode        vm.OpCode
+	Arguments     []byte
+	StackSnapshot []uint256.Int
 }
 
 // =============================================================================
@@ -60,9 +61,15 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 		}
 	}
 
+	snapshot := make([]uint256.Int, len(scope.Stack.Data))
+	for i := range len(scope.Stack.Data) {
+		snapshot[i] = scope.Stack.Data[i]
+	}
+
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
-		Opcode:    op,
-		Arguments: arguments,
+		Opcode:        op,
+		Arguments:     arguments,
+		StackSnapshot: snapshot,
 	})
 }
 
@@ -90,7 +97,7 @@ func NewSimpleTracer() *SimpleTracer {
 		GetHash:     func(uint64) libcommon.Hash { return libcommon.Hash{} },
 		Coinbase:    libcommon.Address{},
 		GasLimit:    1000000,
-		BlockNumber: 1,
+		BlockNumber: 23041867,
 		Time:        1,
 		Difficulty:  big.NewInt(1),
 	}
@@ -106,7 +113,7 @@ func NewSimpleTracer() *SimpleTracer {
 		Debug:  true,
 	}
 
-	evm := vm.NewEVM(blockCtx, txCtx, state, params.TestChainConfig, vmConfig)
+	evm := vm.NewEVM(blockCtx, txCtx, state, params.AllProtocolChanges, vmConfig)
 	in := vm.NewEVMInterpreter(evm, evm.Config())
 	tracer.setJumpTable(in.JT)
 

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/holiman/uint256"
 	uc "github.com/unicorn-engine/unicorn/bindings/go/unicorn"
 )
 
@@ -12,7 +13,7 @@ const EbreakInstr = 0x00100073
 type VmRunner struct{}
 
 type ExecutionResult struct {
-	StackSnapshots *[][]uint64
+	StackSnapshots *[][]uint256.Int
 }
 
 func NewVmRunner() (*VmRunner, error) {
@@ -29,6 +30,11 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	stackAddr := uint64(0x7fff0000)
 	memSize := uint64(0x10000)
 
+	err = mu.MemMap(0, memSize)
+	if err != nil {
+		return nil, err
+	}
+
 	err = mu.MemMap(codeAddr, memSize)
 	if err != nil {
 		return nil, err
@@ -44,7 +50,7 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		return nil, err
 	}
 
-	allStackSnapshots := make([][]uint64, 0)
+	allStackSnapshots := make([][]uint256.Int, 0)
 	executionResults := &ExecutionResult{
 		StackSnapshots: &allStackSnapshots,
 	}
@@ -101,7 +107,7 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	return executionResults, nil
 }
 
-func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint64, error) {
+func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, error) {
 	sp, _ := mu.RegRead(uc.RISCV_REG_SP)
 	stackTop := stackBase + memSize - 16
 
@@ -109,15 +115,16 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint64, error)
 		return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)
 	}
 	numEntries := (stackTop - sp) / 8
-	stack := make([]uint64, numEntries)
-	for i := uint64(0); i < numEntries; i++ {
+	stack := make([]uint256.Int, numEntries)
+	for i := range numEntries {
 		addr := sp + (i * 8)
 		data, err := mu.MemRead(addr, 8)
 		if err != nil {
 			return nil, err
 		}
 		value := binary.LittleEndian.Uint64(data)
-		stack[i] = value
+		w := uint64(len(stack)) - 1 - i
+		stack[w] = *uint256.NewInt(value)
 	}
 	return stack, nil
 }
