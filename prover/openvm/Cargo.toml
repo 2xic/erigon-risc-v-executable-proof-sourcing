@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openvm = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.2.0", features = ["std"] }
-openvm-bigint-guest = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.2.0" }
+openvm = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.3.0", features=["std"] }
+bigint = { path = "./bigint" }
+
+[build]  
+target = "riscv32im-unknown-none-elf"

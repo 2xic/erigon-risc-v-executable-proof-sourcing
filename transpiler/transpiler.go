@@ -67,7 +67,7 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 			},
 			{
 				Name:     "lw",
-				Operands: []string{"t1", "8(sp)"},
+				Operands: []string{"t1", "32(sp)"},
 			},
 			{
 				Name:     "sw",
@@ -75,7 +75,7 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 			},
 			{
 				Name:     "addi",
-				Operands: []string{"sp", "sp", "16"},
+				Operands: []string{"sp", "sp", "64"},
 			},
 		}...)
 	case vm.MLOAD:
@@ -131,7 +131,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 			},
 			{
 				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
+				Operands: []string{"sp", "sp", "32"},
 			},
 			{
 				Name:     "lw",
@@ -158,7 +158,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 			},
 			{
 				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
+				Operands: []string{"sp", "sp", "32"},
 			},
 			{
 				Name:     "li",
@@ -183,7 +183,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 			},
 			{
 				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
+				Operands: []string{"sp", "sp", "32"},
 			},
 			{
 				Name:     "lw",
@@ -213,7 +213,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 		},
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "8"},
+			Operands: []string{"sp", "sp", "32"},
 		},
 		{
 			Name:     "lw",
@@ -221,7 +221,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 		},
 		{
 			Name:     riscOpcode,
-			Operands: []string{"t2", "t0", "t1"},
+			Operands: []string{"t2", "t1", "t0"},
 		},
 		{
 			Name:     "sw",
@@ -235,7 +235,7 @@ func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "-8"},
+			Operands: []string{"sp", "sp", "-32"},
 		},
 		{
 			Name:     "li",
@@ -249,7 +249,7 @@ func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
 }
 
 func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
-	spIndex := (8 * (index - 1))
+	spIndex := (32 * (index - 1))
 	return []prover.Instruction{
 		{
 			Name:     "lw",
@@ -257,7 +257,7 @@ func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
 		},
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "-8"},
+			Operands: []string{"sp", "sp", "-32"},
 		},
 		{
 			Name:     "sw",
@@ -267,7 +267,7 @@ func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
 }
 
 func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
-	spIndex := (8 * (index))
+	spIndex := (32 * (index))
 	return []prover.Instruction{
 		{
 			Name:     "lw",
@@ -292,7 +292,7 @@ func (tr *transpiler) popStack() []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "8"},
+			Operands: []string{"sp", "sp", "32"},
 		},
 	}
 }

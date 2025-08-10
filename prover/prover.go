@@ -13,6 +13,22 @@ import (
 	"path/filepath"
 )
 
+type ZkProverError struct {
+	Message    string
+	Underlying error
+}
+
+func NewZkProverError(message string, underlying error) *ZkProverError {
+	return &ZkProverError{
+		Message:    message,
+		Underlying: underlying,
+	}
+}
+
+func (e *ZkProverError) Error() string {
+	return fmt.Sprintf("ZkProver error: %s: %v", e.Message, e.Underlying)
+}
+
 //go:embed openvm/*
 var zkVMToolchain embed.FS
 
@@ -55,12 +71,12 @@ func (cli *Cli) Execute(arg ...string) (string, error) {
 func (zkVm *ZkProver) Prove() (string, error) {
 	cli, err := zkVm.SetupExecution()
 	if err != nil {
-		return "", err
+		return "", NewZkProverError("failed to setup execution", err)
 	}
 
 	output, err := cli.Execute("cargo", "openvm", "prove", "app", "--input", "0x010A00000000000000")
 	if err != nil {
-		return "", err
+		return "", NewZkProverError("failed to execute prove command", err)
 	}
 
 	return string(output), nil
@@ -72,30 +88,41 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 		return "", err
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "run", "--input", "0x010A00000000000000")
+	output, err := cli.Execute("cargo", "openvm", "run" /*, "--input", "0x010A00000000000000"*/)
 	if err != nil {
 		return "", err
 	}
 
-	return string(output), nil
+	executionOutput := ""
+	for _, line := range bytes.Split([]byte(output), []byte("\n")) {
+		if bytes.HasPrefix(line, []byte("Execution output:")) {
+			executionOutput = string(line)
+			break
+		}
+	}
+	if executionOutput == "" {
+		return "", fmt.Errorf("execution output not found in the output: %s", output)
+	}
+
+	return executionOutput, nil
 }
 
 func (zkVm *ZkProver) SetupExecution() (*Cli, error) {
 	workSpace, err := setupWorkspace([]byte(zkVm.content))
 	if err != nil {
-		return nil, err
+		return nil, NewZkProverError("failed to setup workspace", err)
 	}
 
 	cli := NewCli(workSpace)
 
 	_, err = cli.Execute("cargo", "openvm", "build")
 	if err != nil {
-		return nil, err
+		return nil, NewZkProverError("failed to build project", err)
 	}
 
 	_, err = cli.Execute("cargo", "openvm", "keygen")
 	if err != nil {
-		return nil, err
+		return nil, NewZkProverError("failed to generate keys", err)
 	}
 	return &cli, nil
 }

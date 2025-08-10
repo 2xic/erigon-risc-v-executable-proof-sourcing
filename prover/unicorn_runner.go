@@ -80,13 +80,28 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		StackSnapshots: &allStackSnapshots,
 	}
 
+	instructionCounter := 0
+
 	hook, err := mu.HookAdd(uc.HOOK_CODE, func(mu uc.Unicorn, addr uint64, size uint32) {
+		instructionCounter++
+		//	fmt.Printf("Executing instruction at address: 0x%x\n", addr)
 		// Read the instruction at this address
 		instrBytes, err := mu.MemRead(addr, 4)
 		if err != nil {
 			panic(NewRuntimeError(err))
 		}
+
 		instr := binary.LittleEndian.Uint32(instrBytes)
+
+		/*
+			if instructionCounter%1 == 0 && instructionCounter <= 100 {
+				fmt.Printf("Executed %d instructions\n", instructionCounter)
+				fmt.Printf("Current instruction address: 0x%x\n", addr)
+				fmt.Printf("Instruction bytes: %x\n", instrBytes)
+				fmt.Printf("start address: 0x%x\n", codeAddr+0x34)
+				fmt.Printf("Instruction: 0x%x\n", instr)
+			}
+		*/
 
 		if instr == uint32(EbreakInstr) {
 			snapshot, err := printStackState(mu, stackAddr, memSize)
@@ -115,7 +130,8 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	if err != nil {
 		return nil, NewPreRuntimeError(err)
 	}
-	err = mu.Start(codeAddr, codeAddr+uint64(len(bytecode)))
+
+	err = mu.Start(codeAddr+0x001000, 0)
 	if err != nil {
 		return nil, NewRuntimeError(err)
 	}
@@ -139,17 +155,24 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, e
 	if sp > stackTop {
 		return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)
 	}
-	numEntries := (stackTop - sp) / 8
+	numWords := (stackTop - sp) / 4
+	numEntries := numWords / 8 // 8 words per 256-bit entry (32-bit words)
 	stack := make([]uint256.Int, numEntries)
 	for i := range numEntries {
-		addr := sp + (i * 8)
-		data, err := mu.MemRead(addr, 8)
-		if err != nil {
-			return nil, err
+		// Read 8 consecutive 4-byte words for each 256-bit entry
+		result := make([]byte, 32)
+		for wordIdx := 0; wordIdx < 8; wordIdx++ {
+			addr := sp + ((i*8 + uint64(wordIdx)) * 4)
+			data, err := mu.MemRead(addr, 4)
+			if err != nil {
+				return nil, err
+			}
+			word := binary.LittleEndian.Uint32(data)
+			// Place word in big-endian position (reverse word order)
+			resultStart := (7 - wordIdx) * 4
+			binary.BigEndian.PutUint32(result[resultStart:resultStart+4], word)
 		}
-		value := binary.LittleEndian.Uint64(data)
-		w := uint64(len(stack)) - 1 - i
-		stack[w] = *uint256.NewInt(value)
+		stack[uint64(len(stack)-1)-i].SetBytes(result)
 	}
 	return stack, nil
 }

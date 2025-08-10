@@ -1,7 +1,14 @@
+#![no_std]
+// #[cfg(not(target_os = "zkvm"))]
+// use openvm_bigint_guest::U256;
+use openvm_ruint::aliases::U256;
+
+/*#[cfg(target_os = "zkvm")]
 use openvm_bigint_guest::U256;
+*/
 
 // Utility functions for working with U256 from assembly
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u256_from_words(words: *const u32) -> U256 {
     unsafe {
         let word_slice = core::slice::from_raw_parts(words, 8);
@@ -17,10 +24,10 @@ extern "C" fn u256_from_words(words: *const u32) -> U256 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn u256_to_words(value: *const U256, words: *mut u32) {
     unsafe {
-        let bytes = (*value).as_le_bytes();
+        let bytes: [u8; 32] = (*value).to_le_bytes();
         let word_slice = core::slice::from_raw_parts_mut(words, 8);
 
         // Convert 32 bytes to 8 u32 words (little-endian)
