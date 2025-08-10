@@ -20,6 +20,31 @@ func NewVmRunner() (*VmRunner, error) {
 	return &VmRunner{}, nil
 }
 
+type RuntimeError struct {
+	Err   error
+	Stage string // "runtime" or "post-runtime"
+}
+
+func (e RuntimeError) Error() string {
+	return fmt.Sprintf("%s error: %v", e.Stage, e.Err)
+}
+
+func (e RuntimeError) Unwrap() error {
+	return e.Err
+}
+
+func NewRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "runtime"}
+}
+
+func NewPreRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "pre-runtime"}
+}
+
+func NewPostRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "post-runtime"}
+}
+
 func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	mu, err := uc.NewUnicorn(uc.ARCH_RISCV, uc.MODE_RISCV64)
 	if err != nil {
@@ -32,22 +57,22 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 
 	err = mu.MemMap(0, memSize)
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 
 	err = mu.MemMap(codeAddr, memSize)
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 	err = mu.MemMap(stackAddr, memSize)
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 
 	stackTop := stackAddr + memSize - 16
 	err = mu.RegWrite(uc.RISCV_REG_SP, stackTop)
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 
 	allStackSnapshots := make([][]uint256.Int, 0)
@@ -59,50 +84,50 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		// Read the instruction at this address
 		instrBytes, err := mu.MemRead(addr, 4)
 		if err != nil {
-			panic(err)
+			panic(NewRuntimeError(err))
 		}
 		instr := binary.LittleEndian.Uint32(instrBytes)
 
 		if instr == uint32(EbreakInstr) {
 			snapshot, err := printStackState(mu, stackAddr, memSize)
 			if err != nil {
-				panic(err)
+				panic(NewRuntimeError(err))
 			}
 
 			allStackSnapshots = append(allStackSnapshots, snapshot)
 			pc, err := mu.RegRead(uc.RISCV_REG_PC)
 			if err != nil {
-				panic(err)
+				panic(NewRuntimeError(err))
 			}
 			// Skip 4 bytes (EBREAK instruction size)
 			err = mu.RegWrite(uc.RISCV_REG_PC, pc+4)
 			if err != nil {
-				panic(err)
+				panic(NewRuntimeError(err))
 			}
 		}
 	}, 1, 0)
 
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 
 	err = mu.MemWrite(codeAddr, bytecode)
 	if err != nil {
-		return nil, err
+		return nil, NewPreRuntimeError(err)
 	}
 	err = mu.Start(codeAddr, codeAddr+uint64(len(bytecode)))
 	if err != nil {
-		return nil, err
+		return nil, NewRuntimeError(err)
 	}
 
 	err = mu.HookDel(hook)
 	if err != nil {
-		return nil, err
+		return nil, NewPostRuntimeError(err)
 	}
 	err = mu.Close()
 
 	if err != nil {
-		return nil, err
+		return nil, NewPostRuntimeError(err)
 	}
 	return executionResults, nil
 }

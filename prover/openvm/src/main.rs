@@ -1,6 +1,8 @@
 use openvm::io::{read, reveal_u32};
 use std::arch::global_asm;
 
+mod bigint;
+
 global_asm!(include_str!("./risc.asm"));
 
 // Create wrapper functions that are easier to call from assembly
