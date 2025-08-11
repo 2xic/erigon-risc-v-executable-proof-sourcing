@@ -63,6 +63,7 @@ func TestSimpleOpcodes(t *testing.T) {
 		name     string
 		bytecode []byte
 	}{
+
 		{
 			name:     "PUSH0",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.ADD)},
@@ -75,10 +76,10 @@ func TestSimpleOpcodes(t *testing.T) {
 			name:     "ADD",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x2, byte(vm.ADD)},
 		},
-		/*		{
-				name:     "SLT",
-				bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x1, byte(vm.SLT)},
-			},*/
+		{
+			name:     "SLT",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x1, byte(vm.SLT)},
+		},
 		{
 			name:     "SHR",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SHR)},
@@ -155,12 +156,20 @@ func TestSimpleOpcodes(t *testing.T) {
 			name:     "ISZERO",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE), byte(vm.PUSH0), byte(vm.MLOAD), byte(vm.ISZERO)},
 		},
-
-		// Will not work as we don't support uint256 correctly
-		// {
-		// 	name:     "NOT",
-		// 	bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.NOT)},
-		// },
+		{
+			name:     "NOT",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.NOT)},
+		},
+		{
+			name: "ADD_LARGE",
+			bytecode: []byte{
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.ADD),
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -177,7 +186,7 @@ func TestSimpleOpcodes(t *testing.T) {
 
 		// Verify that the stack is as expected at each step of the execution
 		snapShot := *snapshot.StackSnapshots
-		assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+		assert.Len(t, snapShot, len(evmSnapshot.Snapshots), fmt.Sprintf("Failed on %s (snapshot length)", tc.name))
 		for i := range evmSnapshot.Snapshots {
 			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
 		}

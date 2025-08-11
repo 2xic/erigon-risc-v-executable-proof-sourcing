@@ -24,7 +24,7 @@ func NewTranspiler() *transpiler {
 func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	switch op.Opcode {
 	case vm.ADD:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.add256Inline()...)
 	case vm.EQ:
 		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
 	case vm.SLT:
@@ -151,30 +151,30 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 	case vm.LT:
 		riscOpcode = "SLT"
 	case vm.NOT:
-		return []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "addi",
-				Operands: []string{"sp", "sp", "32"},
-			},
-			{
-				Name:     "li",
-				Operands: []string{"t1", "-1"},
-			},
-			// THere is no dedicated NOT opcode, we need to use XOR.
-			// This would only work for 32 bit numbers ...
-			{
-				Name:     "XOR",
-				Operands: []string{"t2", "t0", "t1"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t2", "0(sp)"},
-			},
+		// Implement 256-bit NOT by XORing each of the 8 u32 words with -1
+		instructions := make([]prover.Instruction, 0)
+		for i := 0; i < 8; i++ {
+			offset := i * 4
+			instructions = append(instructions, []prover.Instruction{
+				{
+					Name:     "lw",
+					Operands: []string{"t0", fmt.Sprintf("%d(sp)", offset)},
+				},
+				{
+					Name:     "li",
+					Operands: []string{"t1", "-1"},
+				},
+				{
+					Name:     "xor",
+					Operands: []string{"t2", "t0", "t1"},
+				},
+				{
+					Name:     "sw",
+					Operands: []string{"t2", fmt.Sprintf("%d(sp)", offset)},
+				},
+			}...)
 		}
+		return instructions
 	case vm.EQ:
 		return []prover.Instruction{
 			{
@@ -206,6 +206,15 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 		panic("Bad opcode")
 	}
 
+	// For SLT, we need to swap operands because EVM compares top < second,
+	// but RISC-V SLT compares rs1 < rs2
+	var operand1, operand2 string
+	if opcode == vm.SLT {
+		operand1, operand2 = "t0", "t1" // Compare top < second
+	} else {
+		operand1, operand2 = "t1", "t0" // Compare second < top (default)
+	}
+
 	instructions := []prover.Instruction{
 		{
 			Name:     "lw",
@@ -221,7 +230,7 @@ func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruct
 		},
 		{
 			Name:     riscOpcode,
-			Operands: []string{"t2", "t1", "t0"},
+			Operands: []string{"t2", operand1, operand2},
 		},
 		{
 			Name:     "sw",
@@ -285,6 +294,77 @@ func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
 			Name:     "sw",
 			Operands: []string{"t0", fmt.Sprintf("%d(sp)", spIndex)},
 		},
+	}
+}
+
+func (tr *transpiler) add256Inline() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "li", Operands: []string{"t6", "0"}},
+		{Name: "lw", Operands: []string{"t0", "0(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "32(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "32(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "4(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "36(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "36(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "8(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "40(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "40(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "12(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "44(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "44(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "16(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "48(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "48(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "20(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "52(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "52(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "24(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "56(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "56(sp)"}},
+		{Name: "lw", Operands: []string{"t0", "28(sp)"}},
+		{Name: "lw", Operands: []string{"t1", "60(sp)"}},
+		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
+		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
+		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
+		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
+		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
+		{Name: "sw", Operands: []string{"t3", "60(sp)"}},
+		{Name: "addi", Operands: []string{"sp", "sp", "32"}},
 	}
 }
 
