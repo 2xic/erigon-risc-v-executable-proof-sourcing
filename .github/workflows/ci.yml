@@ -114,9 +114,9 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           prover/openvm/target/
-        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
+        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ env.OPENVM_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
         restore-keys: |
-          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
+          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ env.OPENVM_VERSION }}-
     
     - name: Install cargo-openvm
       if: steps.cache-rust-dependencies.outputs.cache-hit != 'true'
