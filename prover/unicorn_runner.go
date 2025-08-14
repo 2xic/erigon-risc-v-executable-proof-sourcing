@@ -86,21 +86,25 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		instructionCounter++
 		//	fmt.Printf("Executing instruction at address: 0x%x\n", addr)
 		// Read the instruction at this address
-		instrBytes, err := mu.MemRead(addr, 4)
+		instrBytes, err := mu.MemRead(addr, uint64(size))
 		if err != nil {
 			panic(NewRuntimeError(err))
 		}
-
 		instr := binary.LittleEndian.Uint32(instrBytes)
 
 		/*
-			if instructionCounter%1 == 0 && instructionCounter <= 100 {
-				fmt.Printf("Executed %d instructions\n", instructionCounter)
-				fmt.Printf("Current instruction address: 0x%x\n", addr)
-				fmt.Printf("Instruction bytes: %x\n", instrBytes)
-				fmt.Printf("start address: 0x%x\n", codeAddr+0x34)
-				fmt.Printf("Instruction: 0x%x\n", instr)
-			}
+			fmt.Printf("Executed %d instructions\n", instructionCounter)
+			relativeAddress := addr - codeAddr - 0x00001000
+			fmt.Printf("Current instruction address: 0x%x\n", relativeAddress)
+			fmt.Printf("Instruction bytes: %x\n", instrBytes)
+
+				if instructionCounter%1 == 0 && instructionCounter <= 100 {
+					fmt.Printf("Executed %d instructions\n", instructionCounter)
+					fmt.Printf("Current instruction address: 0x%x\n", addr)
+					fmt.Printf("Instruction bytes: %x\n", instrBytes)
+					fmt.Printf("start address: 0x%x\n", codeAddr+0x34)
+					fmt.Printf("Instruction: 0x%x\n", instr)
+				}
 		*/
 
 		if instr == uint32(EbreakInstr) {
@@ -131,7 +135,7 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		return nil, NewPreRuntimeError(err)
 	}
 
-	err = mu.Start(codeAddr+0x001000, 0)
+	err = mu.Start(codeAddr+0x00001000, 0)
 	if err != nil {
 		return nil, NewRuntimeError(err)
 	}

@@ -1,11 +1,7 @@
 #![no_std]
-// #[cfg(not(target_os = "zkvm"))]
-// use openvm_bigint_guest::U256;
-use openvm_ruint::aliases::U256;
 
-/*#[cfg(target_os = "zkvm")]
-use openvm_bigint_guest::U256;
-*/
+use openvm_ruint::aliases::U256;
+// use openvm_bigint_guest::U256;
 
 // Utility functions for working with U256 from assembly
 #[unsafe(no_mangle)]

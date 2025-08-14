@@ -24,7 +24,7 @@ func NewTranspiler() *transpiler {
 func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	switch op.Opcode {
 	case vm.ADD:
-		tr.instructions = append(tr.instructions, tr.add256Inline()...)
+		tr.instructions = append(tr.instructions, tr.add256Call()...)
 	case vm.EQ:
 		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
 	case vm.SLT:
@@ -297,74 +297,13 @@ func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) add256Inline() []prover.Instruction {
+func (tr *transpiler) add256Call() []prover.Instruction {
 	return []prover.Instruction{
-		{Name: "li", Operands: []string{"t6", "0"}},
-		{Name: "lw", Operands: []string{"t0", "0(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "32(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "32(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "4(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "36(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "36(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "8(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "40(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "40(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "12(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "44(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "44(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "16(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "48(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "48(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "20(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "52(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "52(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "24(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "56(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "56(sp)"}},
-		{Name: "lw", Operands: []string{"t0", "28(sp)"}},
-		{Name: "lw", Operands: []string{"t1", "60(sp)"}},
-		{Name: "add", Operands: []string{"t2", "t0", "t1"}},
-		{Name: "add", Operands: []string{"t3", "t2", "t6"}},
-		{Name: "sltu", Operands: []string{"t4", "t2", "t0"}},
-		{Name: "sltu", Operands: []string{"t5", "t3", "t2"}},
-		{Name: "or", Operands: []string{"t6", "t4", "t5"}},
-		{Name: "sw", Operands: []string{"t3", "60(sp)"}},
-		{Name: "addi", Operands: []string{"sp", "sp", "32"}},
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},        // First number at sp+0
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},       // Second number at sp+32
+		{Name: "addi", Operands: []string{"a2", "sp", "32"}},       // Result goes to sp+32 (second operand location)
+		{Name: "call", Operands: []string{"add256_stack_scratch"}}, // Function call
+		{Name: "addi", Operands: []string{"sp", "sp", "32"}},       // Pop first operand, result is now at sp+0
 	}
 }
 

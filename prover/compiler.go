@@ -31,6 +31,7 @@ func (a *AssemblyFile) toDebugFile() string {
 .global execute
 execute:
 %s 
+    jr x0
 %s
 	`
 	content := fmt.Sprintf(file, instructions, string(libFile))
@@ -97,9 +98,11 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 	cmd := exec.Command("riscv64-linux-gnu-gcc",
 		"-march=rv32im",
 		"-mabi=ilp32",
-		"-nostdlib",      // No standard library
-		"-static",        // Static linking
-		"-Wl,-Ttext=0x0", // Set text address
+		"-nostdlib",
+		"-nostartfiles", 
+		"-static",
+		"-Wl,--entry=execute", 
+		"-Wl,-Ttext=0x1000",  
 		"-o", objFile,
 		tmpFile.Name())
 	var stdout, stderr bytes.Buffer
@@ -108,6 +111,7 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to compile: %s", stderr.String())
 	}
+
 	defer func() {
 		if err := os.Remove(objFile); err != nil {
 			log.Printf("Failed to remove temporary file %s: %v", objFile, err)

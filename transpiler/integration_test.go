@@ -69,6 +69,16 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.ADD)},
 		},
 		{
+			name: "ADD_256bit",
+			bytecode: []byte{
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.ADD),
+			},
+		},
+		{
 			name:     "PUSH4",
 			bytecode: []byte{byte(vm.PUSH4), 0x42, 0x43, 0x42, 0x41},
 		},
@@ -157,16 +167,31 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE), byte(vm.PUSH0), byte(vm.MLOAD), byte(vm.ISZERO)},
 		},
 		{
-			name:     "NOT",
+			name:     "NOT_simple",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.NOT)},
 		},
 		{
-			name: "ADD_LARGE",
+			name:     "NOT_zero",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.NOT)},
+		},
+		{
+			name:     "NOT_max_32bit",
+			bytecode: []byte{byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF, byte(vm.NOT)},
+		},
+		{
+			name: "NOT_double",
 			bytecode: []byte{
-				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.PUSH1), 0x42,
+				byte(vm.NOT),
+				byte(vm.NOT),
+			},
+		},
+		{
+			name: "NOT_with_add",
+			bytecode: []byte{
 				byte(vm.PUSH1), 0x1,
-				byte(vm.ADD),
-				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.NOT),
+				byte(vm.PUSH1), 0x1,
 				byte(vm.ADD),
 			},
 		},
@@ -187,6 +212,19 @@ func TestSimpleOpcodes(t *testing.T) {
 		// Verify that the stack is as expected at each step of the execution
 		snapShot := *snapshot.StackSnapshots
 		assert.Len(t, snapShot, len(evmSnapshot.Snapshots), fmt.Sprintf("Failed on %s (snapshot length)", tc.name))
+
+		/*
+			if len(evmSnapshot.Snapshots) != len(snapShot) {
+				for i := range evmSnapshot.Snapshots {
+					fmt.Println(evmSnapshot.Snapshots[i])
+				}
+				fmt.Println("=====")
+				for i := range snapShot {
+					fmt.Println(snapShot[i])
+				}
+			}
+		*/
+
 		for i := range evmSnapshot.Snapshots {
 			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
 		}
