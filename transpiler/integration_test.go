@@ -28,10 +28,11 @@ func TestAddOpcode(t *testing.T) {
 	}
 	assembly, _, err := NewTestRunner(bytecode).Execute()
 	assert.NoError(t, err)
+
 	bytecode, err = assembly.ToBytecode()
 	assert.NoError(t, err)
 
-	execution, err := prover.NewVmRunner()
+	execution, err := prover.NewUnicornRunner()
 	assert.NoError(t, err)
 	snapshot, err := execution.Execute(bytecode)
 	assert.NoError(t, err)
@@ -45,6 +46,7 @@ func TestAddOpcode(t *testing.T) {
 
 	// Verify that we can run the Zk prover on the assembly
 	content, err := assembly.ToToolChainCompatibleAssembly()
+	fmt.Println(content)
 	assert.NoError(t, err)
 	zkVm := prover.NewZkProver(content)
 	output, err := zkVm.TestRun()
@@ -204,7 +206,7 @@ func TestSimpleOpcodes(t *testing.T) {
 		bytecode, err = assembly.ToBytecode()
 		assert.NoError(t, err)
 
-		execution, err := prover.NewVmRunner()
+		execution, err := prover.NewUnicornRunner()
 		assert.NoError(t, err)
 		snapshot, err := execution.Execute(bytecode)
 		assert.NoError(t, err)

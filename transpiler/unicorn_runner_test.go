@@ -56,7 +56,7 @@ func TestBigIntConverter(t *testing.T) {
 	bytecode, err := file.ToBytecode()
 	assert.NoError(t, err)
 
-	VmRunner, err := prover.NewVmRunner()
+	VmRunner, err := prover.NewUnicornRunner()
 	assert.NoError(t, err)
 
 	snapshot, err := VmRunner.Execute(bytecode)

@@ -34,7 +34,8 @@ add_loop:
     addi t0, t0, 1              # i++
     li t1, 8                    # number of 32-bit words in 256 bits
     blt t0, t1, add_loop        # continue if i < 8
-    
+    # Pop the first operand and result will be at top of stack.
+    addi sp, sp, 32
     ret
 
 # Convert 8 u32 words to 32 bytes (little-endian)

@@ -39,7 +39,7 @@ extern "C" fn u256_to_words(value: *const U256, words: *mut u32) {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn add256_stack_scratch(
+pub extern "C" fn add256_stack_scratch(
     // Pointer to first 256-bit number (8 words)
     num1_ptr: *const u32,
     // Pointer to second 256-bit number (8 words)

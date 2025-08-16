@@ -62,11 +62,13 @@ func (f *AssemblyFile) ToToolChainCompatibleAssembly() (string, error) {
 execute:
 	# Save stack
 	mv s2, sp
+	mv s1, ra
 
 %s
 
 	# Restore stack
 	mv sp, s2
+	mv ra, s1
 	ret	
 	`
 	return fmt.Sprintf(format, f.toZkFile()), nil
@@ -99,10 +101,10 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 		"-march=rv32im",
 		"-mabi=ilp32",
 		"-nostdlib",
-		"-nostartfiles", 
+		"-nostartfiles",
 		"-static",
-		"-Wl,--entry=execute", 
-		"-Wl,-Ttext=0x1000",  
+		"-Wl,--entry=execute",
+		"-Wl,-Ttext=0x1000",
 		"-o", objFile,
 		tmpFile.Name())
 	var stdout, stderr bytes.Buffer

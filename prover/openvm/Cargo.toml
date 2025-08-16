@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 openvm = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.3.0", features=["std"] }
 bigint = { path = "./bigint" }
+openvm-ruint = { git = "https://github.com/openvm-org/openvm.git", package = "ruint", tag = "v1.3.0" , default-features = false }
 
 [build]  
 target = "riscv32im-unknown-none-elf"

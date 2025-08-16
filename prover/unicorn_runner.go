@@ -16,7 +16,7 @@ type ExecutionResult struct {
 	StackSnapshots *[][]uint256.Int
 }
 
-func NewVmRunner() (*VmRunner, error) {
+func NewUnicornRunner() (*VmRunner, error) {
 	return &VmRunner{}, nil
 }
 
