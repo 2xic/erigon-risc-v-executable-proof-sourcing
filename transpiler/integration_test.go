@@ -11,6 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func assertStackEqual(t *testing.T, expected, actual []uint256.Int, message string) {
+	assert.Equal(t, len(expected), len(actual), message)
+
+	for i := range expected {
+		assert.True(t, expected[i].Eq(&actual[i]), fmt.Sprintf("%s: expected %s but got %s at index %d", message, expected[i].String(), actual[i].String(), i))
+	}
+
+}
+
 func TestAddOpcode(t *testing.T) {
 	bytecode := []byte{
 		byte(vm.PUSH1), 0x42,
@@ -19,10 +28,11 @@ func TestAddOpcode(t *testing.T) {
 	}
 	assembly, _, err := NewTestRunner(bytecode).Execute()
 	assert.NoError(t, err)
+
 	bytecode, err = assembly.ToBytecode()
 	assert.NoError(t, err)
 
-	execution, err := prover.NewVmRunner()
+	execution, err := prover.NewUnicornRunner()
 	assert.NoError(t, err)
 	snapshot, err := execution.Execute(bytecode)
 	assert.NoError(t, err)
@@ -36,12 +46,13 @@ func TestAddOpcode(t *testing.T) {
 
 	// Verify that we can run the Zk prover on the assembly
 	content, err := assembly.ToToolChainCompatibleAssembly()
+	fmt.Println(content)
 	assert.NoError(t, err)
 	zkVm := prover.NewZkProver(content)
 	output, err := zkVm.TestRun()
 	assert.NoError(t, err)
 	// All zero as we don't write any of the output.
-	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]\n", output)
+	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)
 
 	// output, err = zkVm.Prove()
 	// assert.NoError(t, err)
@@ -54,9 +65,20 @@ func TestSimpleOpcodes(t *testing.T) {
 		name     string
 		bytecode []byte
 	}{
+
 		{
 			name:     "PUSH0",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.ADD)},
+		},
+		{
+			name: "ADD_256bit",
+			bytecode: []byte{
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+				byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF,
+				byte(vm.ADD),
+			},
 		},
 		{
 			name:     "PUSH4",
@@ -121,6 +143,7 @@ func TestSimpleOpcodes(t *testing.T) {
 			name:     "DUP3",
 			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x0, byte(vm.DUP3), byte(vm.ADD)},
 		},
+
 		{
 			name:     "SWAP1",
 			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x1, byte(vm.DUP2), byte(vm.SWAP1), byte(vm.ADD)},
@@ -145,12 +168,35 @@ func TestSimpleOpcodes(t *testing.T) {
 			name:     "ISZERO",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH1), 0x42, byte(vm.MSTORE), byte(vm.PUSH0), byte(vm.MLOAD), byte(vm.ISZERO)},
 		},
-
-		// Will not work as we don't support uint256 correctly
-		// {
-		// 	name:     "NOT",
-		// 	bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x1, byte(vm.NOT)},
-		// },
+		{
+			name:     "NOT_simple",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.NOT)},
+		},
+		{
+			name:     "NOT_zero",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.NOT)},
+		},
+		{
+			name:     "NOT_max_32bit",
+			bytecode: []byte{byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF, byte(vm.NOT)},
+		},
+		{
+			name: "NOT_double",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x42,
+				byte(vm.NOT),
+				byte(vm.NOT),
+			},
+		},
+		{
+			name: "NOT_with_add",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x1,
+				byte(vm.NOT),
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -160,16 +206,29 @@ func TestSimpleOpcodes(t *testing.T) {
 		bytecode, err = assembly.ToBytecode()
 		assert.NoError(t, err)
 
-		execution, err := prover.NewVmRunner()
+		execution, err := prover.NewUnicornRunner()
 		assert.NoError(t, err)
 		snapshot, err := execution.Execute(bytecode)
 		assert.NoError(t, err)
 
 		// Verify that the stack is as expected at each step of the execution
 		snapShot := *snapshot.StackSnapshots
-		assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+		assert.Len(t, snapShot, len(evmSnapshot.Snapshots), fmt.Sprintf("Failed on %s (snapshot length)", tc.name))
+
+		/*
+			if len(evmSnapshot.Snapshots) != len(snapShot) {
+				for i := range evmSnapshot.Snapshots {
+					fmt.Println(evmSnapshot.Snapshots[i])
+				}
+				fmt.Println("=====")
+				for i := range snapShot {
+					fmt.Println(snapShot[i])
+				}
+			}
+		*/
+
 		for i := range evmSnapshot.Snapshots {
-			assert.Equal(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
+			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
 		}
 	}
 }

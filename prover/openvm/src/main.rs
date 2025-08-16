@@ -1,3 +1,5 @@
+#[allow(unused_imports, clippy::single_component_path_imports)]
+use bigint;
 use openvm::io::{read, reveal_u32};
 use std::arch::global_asm;
 

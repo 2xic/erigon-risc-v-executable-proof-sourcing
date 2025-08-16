@@ -13,6 +13,7 @@ env:
   RUST_185_VERSION: '1.85'
   UNICORN_COMMIT: 'f8c6db950420d2498700245269d0b647697c5666'
   GOLANGCI_LINT_VERSION: v2.1
+  OPENVM_VERSION: 'v1.3.0'
 
 jobs:
   ci:
@@ -113,15 +114,15 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           prover/openvm/target/
-        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
+        key: ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ env.OPENVM_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
         restore-keys: |
-          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-
+          ${{ runner.os }}-cargo-${{ env.RUST_VERSION }}-${{ env.OPENVM_VERSION }}-
     
     - name: Install cargo-openvm
       if: steps.cache-rust-dependencies.outputs.cache-hit != 'true'
       run: |
         if ! command -v cargo-openvm &> /dev/null; then
-          cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag v1.2.0 cargo-openvm
+          cargo +${{ env.RUST_185_VERSION }} install --locked --git https://github.com/openvm-org/openvm.git --tag ${{ env.OPENVM_VERSION }} cargo-openvm
         fi
     
     # Linting
