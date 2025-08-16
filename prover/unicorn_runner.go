@@ -22,7 +22,7 @@ func NewUnicornRunner() (*VmRunner, error) {
 
 type RuntimeError struct {
 	Err   error
-	Stage string // "runtime" or "post-runtime"
+	Stage string // "pre-runtime", "runtime" and "post-runtime"
 }
 
 func (e RuntimeError) Error() string {
@@ -160,7 +160,8 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, e
 		return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)
 	}
 	numWords := (stackTop - sp) / 4
-	numEntries := numWords / 8 // 8 words per 256-bit entry (32-bit words)
+	// 8 words per 256-bit entry (32-bit words)
+	numEntries := numWords / 8
 	stack := make([]uint256.Int, numEntries)
 	for i := range numEntries {
 		// Read 8 consecutive 4-byte words for each 256-bit entry

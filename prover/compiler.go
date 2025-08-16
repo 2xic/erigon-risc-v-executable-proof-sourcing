@@ -122,11 +122,3 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 
 	return os.ReadFile(objFile)
 }
-
-func (f *AssemblyFile) IncludeDirectives(include []string) string {
-	includes := make([]string, len(include))
-	for i, inc := range include {
-		includes[i] = fmt.Sprintf(".include \"%s\"", inc)
-	}
-	return strings.Join(includes, "\n")
-}

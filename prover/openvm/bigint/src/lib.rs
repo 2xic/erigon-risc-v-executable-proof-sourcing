@@ -1,7 +1,6 @@
 #![no_std]
 
 use openvm_ruint::aliases::U256;
-// use openvm_bigint_guest::U256;
 
 // Utility functions for working with U256 from assembly
 #[unsafe(no_mangle)]
@@ -40,11 +39,8 @@ extern "C" fn u256_to_words(value: *const U256, words: *mut u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn add256_stack_scratch(
-    // Pointer to first 256-bit number (8 words)
     num1_ptr: *const u32,
-    // Pointer to second 256-bit number (8 words)
     num2_ptr: *const u32,
-    // Pointer to store result (8 words)
     result_ptr: *mut u32,
 ) {
     let a = u256_from_words(num1_ptr);
