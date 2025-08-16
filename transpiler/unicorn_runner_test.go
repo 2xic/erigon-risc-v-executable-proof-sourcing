@@ -11,8 +11,8 @@ import (
 func TestBigIntConverter(t *testing.T) {
 	file := prover.AssemblyFile{
 		Instructions: []prover.Instruction{
+			{Name: "mv", Operands: []string{"s2", "sp"}},
 			{Name: "addi", Operands: []string{"sp", "sp", "-80"}},
-			{Name: "sw", Operands: []string{"ra", "76(sp)"}},
 
 			// 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 			{Name: "li", Operands: []string{"t0", "0xFFFFFFFF"}},
@@ -42,14 +42,13 @@ func TestBigIntConverter(t *testing.T) {
 			//  Add thw two 256-bit numbers
 			{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 			{Name: "addi", Operands: []string{"a1", "sp", "32"}},
-			{Name: "addi", Operands: []string{"a2", "sp", "0"}},
+			{Name: "addi", Operands: []string{"a2", "sp", "32"}},
 			{Name: "call", Operands: []string{"add256_stack_scratch"}},
 			{Name: "ebreak", Operands: []string{}},
 
-			{Name: "lw", Operands: []string{"ra", "76(sp)"}},
-			{Name: "addi", Operands: []string{"sp", "sp", "80"}},
+			{Name: "mv", Operands: []string{"sp", "s2"}},
 
-			{Name: "ret", Operands: []string{}},
+			{Name: "jr", Operands: []string{"x0"}},
 		},
 	}
 
@@ -73,16 +72,15 @@ func TestBigIntConverter(t *testing.T) {
 	resultsValue, err := uint256.FromHex("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdee")
 	assert.NoError(t, err)
 
-	assert.Equal(t, snapShot[0], []uint256.Int{
+	assert.Equal(t, []uint256.Int{
 		*uint256.NewInt(0x0),
 		*firstValue,
-	})
-	assert.Equal(t, snapShot[1], []uint256.Int{
+	}, snapShot[0])
+	assert.Equal(t, []uint256.Int{
 		*secondValue,
 		*firstValue,
-	})
-	assert.Equal(t, snapShot[2], []uint256.Int{
-		*secondValue,
+	}, snapShot[1])
+	assert.Equal(t, []uint256.Int{
 		*resultsValue,
-	})
+	}, snapShot[2])
 }
