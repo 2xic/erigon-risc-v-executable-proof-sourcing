@@ -9,15 +9,55 @@ import (
 	"strconv"
 
 	"github.com/erigontech/erigon/core/vm"
+	"github.com/holiman/uint256"
 )
+
+type DataSection struct {
+	values []*uint256.Int
+}
+
+func NewDataSection() *DataSection {
+	return &DataSection{
+		values: make([]*uint256.Int, 0),
+	}
+}
+
+func (ds *DataSection) Add(value *uint256.Int) string {
+	ds.values = append(ds.values, value)
+	index := len(ds.values) - 1
+	return fmt.Sprintf("data_var_%d", index)
+}
+
+func (ds *DataSection) Iter() []struct {
+	Name  string
+	Value *uint256.Int
+} {
+	result := make([]struct {
+		Name  string
+		Value *uint256.Int
+	}, len(ds.values))
+
+	for i, value := range ds.values {
+		result[i] = struct {
+			Name  string
+			Value *uint256.Int
+		}{
+			Name:  fmt.Sprintf("data_var_%d", i),
+			Value: value,
+		}
+	}
+	return result
+}
 
 type transpiler struct {
 	instructions []prover.Instruction
+	dataSection  *DataSection
 }
 
 func NewTranspiler() *transpiler {
 	return &transpiler{
 		instructions: make([]prover.Instruction, 0),
+		dataSection:  NewDataSection(),
 	}
 }
 
@@ -101,6 +141,12 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 		// TODO: optimize?
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(vm.EQ)...)
+	case vm.CALLVALUE:
+		varName := tr.addArgumentToDataSection(op)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.CALLDATASIZE:
+		varName := tr.addArgumentToDataSection(op)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.STOP:
 		// no operation opcode
 		return
@@ -315,8 +361,57 @@ func (tr *transpiler) popStack() []prover.Instruction {
 	}
 }
 
+// TODO: make all arguments be uint256 instead?
+func (tr *transpiler) addArgumentToDataSection(op *tracer.EvmInstructionMetadata) string {
+	value := new(uint256.Int)
+	if len(op.Arguments) > 0 {
+		value.SetBytes(op.Arguments)
+	}
+	return tr.dataSection.Add(value)
+}
+
+func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
+	instructions := []prover.Instruction{
+		{
+			Name:     "addi",
+			Operands: []string{"sp", "sp", "-32"},
+		},
+		{
+			Name:     "la",
+			Operands: []string{"t0", varName},
+		},
+	}
+
+	// Load all 8 32-bit words from data section to stack
+	for i := 0; i < 8; i++ {
+		offset := i * 4
+		instructions = append(instructions, []prover.Instruction{
+			{
+				Name:     "lw",
+				Operands: []string{"t1", fmt.Sprintf("%d(t0)", offset)},
+			},
+			{
+				Name:     "sw",
+				Operands: []string{"t1", fmt.Sprintf("%d(sp)", offset)},
+			},
+		}...)
+	}
+
+	return instructions
+}
+
 func (tr *transpiler) toAssembly() *prover.AssemblyFile {
+	// Convert data section to prover format
+	dataSection := make([]prover.DataVariable, 0)
+	for _, dataVar := range tr.dataSection.Iter() {
+		dataSection = append(dataSection, prover.DataVariable{
+			Name:  dataVar.Name,
+			Value: dataVar.Value,
+		})
+	}
+
 	return &prover.AssemblyFile{
 		Instructions: tr.instructions,
+		DataSection:  dataSection,
 	}
 }

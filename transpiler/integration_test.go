@@ -197,6 +197,30 @@ func TestSimpleOpcodes(t *testing.T) {
 				byte(vm.ADD),
 			},
 		},
+		{
+			name:     "CALLVALUE",
+			bytecode: []byte{byte(vm.CALLVALUE)},
+		},
+		{
+			name:     "CALLDATASIZE",
+			bytecode: []byte{byte(vm.CALLDATASIZE)},
+		},
+		{
+			name: "CALLVALUE_with_ADD",
+			bytecode: []byte{
+				byte(vm.CALLVALUE),
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+			},
+		},
+		{
+			name: "CALLDATASIZE_with_ADD",
+			bytecode: []byte{
+				byte(vm.CALLDATASIZE),
+				byte(vm.PUSH1), 0x1,
+				byte(vm.ADD),
+			},
+		},
 	}
 
 	for _, tc := range tests {
