@@ -1,3 +1,8 @@
+/*
+    The role of this file is just for Unicorn to have access to functions which
+    mimics the ruint guest function we expose in the zk vm toolchain.
+*/
+
 .section .text
 
 # Optimized 256-bit addition using a loop
