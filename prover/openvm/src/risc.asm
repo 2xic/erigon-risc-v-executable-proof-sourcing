@@ -1,3 +1,3 @@
 // Will be generated
 execute:
-    NOP
+    ret

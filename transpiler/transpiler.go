@@ -24,19 +24,19 @@ func NewTranspiler() *transpiler {
 func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	switch op.Opcode {
 	case vm.ADD:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.add256Call()...)
 	case vm.EQ:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.SLT:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.slt256Call()...)
 	case vm.SHR:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.shr256Call()...)
 	case vm.GT:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.gt256Call()...)
 	case vm.LT:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.lt256Call()...)
 	case vm.NOT:
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(op.Opcode)...)
+		tr.instructions = append(tr.instructions, tr.not256Call()...)
 	case vm.PUSH0:
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(0))...)
 	case vm.PUSH1:
@@ -60,39 +60,9 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	case vm.POP:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MSTORE:
-		tr.instructions = append(tr.instructions, []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "lw",
-				Operands: []string{"t1", "8(sp)"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t1", "0(t0)"},
-			},
-			{
-				Name:     "addi",
-				Operands: []string{"sp", "sp", "16"},
-			},
-		}...)
+		tr.instructions = append(tr.instructions, tr.mstore256Call()...)
 	case vm.MLOAD:
-		tr.instructions = append(tr.instructions, []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "lw",
-				Operands: []string{"t1", "0(t0)"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t1", "0(sp)"},
-			},
-		}...)
+		tr.instructions = append(tr.instructions, tr.mload256Call()...)
 	case vm.JUMPDEST:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name: "NOP",
@@ -100,7 +70,7 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	case vm.ISZERO:
 		// TODO: optimize?
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
-		tr.instructions = append(tr.instructions, tr.primitiveStackOperator(vm.EQ)...)
+		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.STOP:
 		// no operation opcode
 		return
@@ -114,128 +84,11 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 	})
 }
 
-// Takes two arguments of the stack does an operator on it and put the results back on the stack
-func (tr *transpiler) primitiveStackOperator(opcode vm.OpCode) []prover.Instruction {
-	var riscOpcode string
-	switch opcode {
-	case vm.ADD:
-		riscOpcode = "ADD"
-	case vm.SLT:
-		riscOpcode = "SLT"
-	case vm.SHR:
-		riscOpcode = "srl"
-		return []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
-			},
-			{
-				Name:     "lw",
-				Operands: []string{"t1", "0(sp)"},
-			},
-			{
-				Name:     riscOpcode,
-				Operands: []string{"t2", "t1", "t0"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t2", "0(sp)"},
-			},
-		}
-	case vm.GT:
-		riscOpcode = "SGT"
-	case vm.LT:
-		riscOpcode = "SLT"
-	case vm.NOT:
-		return []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
-			},
-			{
-				Name:     "li",
-				Operands: []string{"t1", "-1"},
-			},
-			// THere is no dedicated NOT opcode, we need to use XOR.
-			// This would only work for 32 bit numbers ...
-			{
-				Name:     "XOR",
-				Operands: []string{"t2", "t0", "t1"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t2", "0(sp)"},
-			},
-		}
-	case vm.EQ:
-		return []prover.Instruction{
-			{
-				Name:     "lw",
-				Operands: []string{"t0", "0(sp)"},
-			},
-			{
-				Name:     "addi",
-				Operands: []string{"sp", "sp", "8"},
-			},
-			{
-				Name:     "lw",
-				Operands: []string{"t1", "0(sp)"},
-			},
-			{
-				Name:     "xor",
-				Operands: []string{"t0", "t0", "t1"},
-			},
-			{
-				Name:     "sltiu",
-				Operands: []string{"t2", "t0", "1"},
-			},
-			{
-				Name:     "sw",
-				Operands: []string{"t2", "0(sp)"},
-			},
-		}
-	default:
-		panic("Bad opcode")
-	}
-
-	instructions := []prover.Instruction{
-		{
-			Name:     "lw",
-			Operands: []string{"t0", "0(sp)"},
-		},
-		{
-			Name:     "addi",
-			Operands: []string{"sp", "sp", "8"},
-		},
-		{
-			Name:     "lw",
-			Operands: []string{"t1", "0(sp)"},
-		},
-		{
-			Name:     riscOpcode,
-			Operands: []string{"t2", "t0", "t1"},
-		},
-		{
-			Name:     "sw",
-			Operands: []string{"t2", "0(sp)"},
-		},
-	}
-	return instructions
-}
-
 func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "-8"},
+			Operands: []string{"sp", "sp", "-32"},
 		},
 		{
 			Name:     "li",
@@ -249,7 +102,7 @@ func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
 }
 
 func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
-	spIndex := (8 * (index - 1))
+	spIndex := (32 * (index - 1))
 	return []prover.Instruction{
 		{
 			Name:     "lw",
@@ -257,7 +110,7 @@ func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
 		},
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "-8"},
+			Operands: []string{"sp", "sp", "-32"},
 		},
 		{
 			Name:     "sw",
@@ -267,7 +120,7 @@ func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
 }
 
 func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
-	spIndex := (8 * (index))
+	spIndex := (32 * (index))
 	return []prover.Instruction{
 		{
 			Name:     "lw",
@@ -288,11 +141,82 @@ func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
 	}
 }
 
+func (tr *transpiler) add256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "addi", Operands: []string{"a2", "sp", "32"}},
+		{Name: "call", Operands: []string{"add256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) not256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "call", Operands: []string{"not256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) shr256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "32"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "0"}},
+		{Name: "call", Operands: []string{"shr256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) slt256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"slt256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) eq256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"eq256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) gt256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"gt256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) lt256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"lt256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) mstore256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"mstore256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) mload256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "call", Operands: []string{"mload256_stack_scratch"}},
+	}
+}
+
 func (tr *transpiler) popStack() []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
-			Operands: []string{"sp", "sp", "8"},
+			Operands: []string{"sp", "sp", "32"},
 		},
 	}
 }
