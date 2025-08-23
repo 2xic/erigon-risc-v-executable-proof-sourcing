@@ -10,13 +10,33 @@ import (
 
 const CONTRACT_ADDRESS = "0x1234567890123456789012345678901234567890"
 
+type TestConfig struct {
+	CallValue *uint256.Int
+	CallData  []byte
+}
+
 type testRunner struct {
 	program []byte
+	config  *TestConfig
 }
 
 func NewTestRunner(program []byte) *testRunner {
 	return &testRunner{
 		program: program,
+		config: &TestConfig{
+			CallValue: uint256.NewInt(0),
+		},
+	}
+}
+
+func NewTestRunnerWithConfig(program []byte, config TestConfig) *testRunner {
+	if config.CallValue == nil {
+		config.CallValue = uint256.NewInt(0)
+	}
+	
+	return &testRunner{
+		program: program,
+		config:  &config,
 	}
 }
 
@@ -33,7 +53,11 @@ func (t *testRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) 
 		return nil, nil, err
 	}
 
-	instructions, _, err := runner.ExecuteContract(contractAddr, nil, 100000)
+	callData := t.config.CallData
+	if callData == nil {
+		callData = []byte{}
+	}
+	instructions, executionState, _, err := runner.ExecuteContract(contractAddr, callData, 100000, t.config.CallValue)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,8 +65,9 @@ func (t *testRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) 
 	snapshot := EvmStackSnapshot{
 		Snapshots: make([][]uint256.Int, 0),
 	}
+
 	for i := range instructions {
-		transpiler.AddInstruction(instructions[i])
+		transpiler.AddInstruction(instructions[i], executionState)
 		if i > 0 {
 			snapshot.Snapshots = append(snapshot.Snapshots, instructions[i].StackSnapshot)
 		}

@@ -60,11 +60,11 @@ func (a *AssemblyFile) generateDataSection() string {
 		bytes := dataVar.Value.Bytes32()
 		lines = append(lines, fmt.Sprintf("%s:", dataVar.Name))
 		for i := 0; i < 8; i++ {
-			offset := i * 4
-			word := uint32(bytes[28-offset]) |
-				uint32(bytes[29-offset])<<8 |
-				uint32(bytes[30-offset])<<16 |
-				uint32(bytes[31-offset])<<24
+			offset := (7 - i) * 4
+			word := uint32(bytes[offset+3]) |
+				uint32(bytes[offset+2])<<8 |
+				uint32(bytes[offset+1])<<16 |
+				uint32(bytes[offset])<<24
 			lines = append(lines, fmt.Sprintf("    .word 0x%08x", word))
 		}
 	}
@@ -162,6 +162,7 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 		"-static",
 		"-Wl,--entry=execute",
 		"-Wl,-Ttext=0x1000",
+		"-Wl,-Tdata=0x12000",
 		"-o", objFile,
 		tmpFile.Name())
 	var stdout, stderr bytes.Buffer

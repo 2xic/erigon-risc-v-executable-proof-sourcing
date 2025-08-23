@@ -12,56 +12,21 @@ import (
 	"github.com/holiman/uint256"
 )
 
-type DataSection struct {
-	values []*uint256.Int
-}
-
-func NewDataSection() *DataSection {
-	return &DataSection{
-		values: make([]*uint256.Int, 0),
-	}
-}
-
-func (ds *DataSection) Add(value *uint256.Int) string {
-	ds.values = append(ds.values, value)
-	index := len(ds.values) - 1
-	return fmt.Sprintf("data_var_%d", index)
-}
-
-func (ds *DataSection) Iter() []struct {
-	Name  string
-	Value *uint256.Int
-} {
-	result := make([]struct {
-		Name  string
-		Value *uint256.Int
-	}, len(ds.values))
-
-	for i, value := range ds.values {
-		result[i] = struct {
-			Name  string
-			Value *uint256.Int
-		}{
-			Name:  fmt.Sprintf("data_var_%d", i),
-			Value: value,
-		}
-	}
-	return result
-}
-
 type transpiler struct {
-	instructions []prover.Instruction
-	dataSection  *DataSection
+	instructions   []prover.Instruction
+	dataSection    *DataSection
+	storageSection *StorageSection
 }
 
 func NewTranspiler() *transpiler {
 	return &transpiler{
-		instructions: make([]prover.Instruction, 0),
-		dataSection:  NewDataSection(),
+		instructions:   make([]prover.Instruction, 0),
+		dataSection:    NewDataSection(),
+		storageSection: NewStorageSection(),
 	}
 }
 
-func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
+func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) {
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, tr.add256Call()...)
@@ -112,10 +77,37 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata) {
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.CALLVALUE:
-		varName := tr.addArgumentToDataSection(op)
+		varName := tr.dataSection.Add(state.CallValue)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.CALLDATASIZE:
-		varName := tr.addArgumentToDataSection(op)
+		size := uint256.NewInt(uint64(len(state.CallData)))
+		varName := tr.dataSection.Add(size)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.CALLDATALOAD:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		offset := op.StackSnapshot[0].Uint64()
+		tr.instructions = append(tr.instructions, tr.calldataloadCall(offset, state.CallData)...)
+	case vm.CODECOPY:
+		// Pop arguments and get parameters
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		destOffset := op.StackSnapshot[2].Uint64()
+		codeOffset := op.StackSnapshot[1].Uint64()
+		length := op.StackSnapshot[0].Uint64()
+
+		tr.instructions = append(tr.instructions, tr.codecopyCall(destOffset, codeOffset, length, state.CodeData)...)
+	case vm.SSTORE:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		key := tr.getStorageKey(op.StackSnapshot[1])
+		value := tr.getStorageValue(op.StackSnapshot[0])
+		tr.storageSection.Store(tr.dataSection, key, value)
+	case vm.SLOAD:
+		key := tr.getStorageKey(op.StackSnapshot[0])
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		varName := tr.storageSection.Load(tr.dataSection, key)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.STOP:
 		// no operation opcode
@@ -258,6 +250,60 @@ func (tr *transpiler) mload256Call() []prover.Instruction {
 	}
 }
 
+func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.Instruction {
+	data := make([]byte, 32)
+	if offset < uint64(len(callData)) {
+		end := offset + 32
+		if end > uint64(len(callData)) {
+			end = uint64(len(callData))
+		}
+		copy(data, callData[offset:end])
+	}
+
+	value := new(uint256.Int)
+	value.SetBytes(data)
+	varName := tr.dataSection.Add(value)
+	return tr.loadFromDataSection(varName)
+}
+
+func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeData []byte) []prover.Instruction {
+	var instructions []prover.Instruction
+
+	codeToCopy := make([]byte, length)
+	if codeOffset < uint64(len(codeData)) {
+		end := codeOffset + length
+		if end > uint64(len(codeData)) {
+			end = uint64(len(codeData))
+		}
+		copy(codeToCopy, codeData[codeOffset:end])
+	}
+
+	for i := uint64(0); i < length; i += 32 {
+		chunk := make([]byte, 32)
+		if i < uint64(len(codeToCopy)) {
+			copy(chunk, codeToCopy[i:])
+		}
+
+		value := new(uint256.Int)
+		value.SetBytes(chunk)
+		varName := tr.dataSection.Add(value)
+
+		instructions = append(instructions, []prover.Instruction{
+			{Name: "li", Operands: []string{"t0", fmt.Sprintf("%d", destOffset+i)}},
+			{Name: "la", Operands: []string{"t1", varName}},
+		}...)
+
+		for wordOffset := 0; wordOffset < 32; wordOffset += 4 {
+			instructions = append(instructions, []prover.Instruction{
+				{Name: "lw", Operands: []string{"t2", fmt.Sprintf("%d(t1)", wordOffset)}},
+				{Name: "sw", Operands: []string{"t2", fmt.Sprintf("%d(t0)", wordOffset)}},
+			}...)
+		}
+	}
+
+	return instructions
+}
+
 func (tr *transpiler) popStack() []prover.Instruction {
 	return []prover.Instruction{
 		{
@@ -267,13 +313,13 @@ func (tr *transpiler) popStack() []prover.Instruction {
 	}
 }
 
-// TODO: make all arguments be uint256 instead?
-func (tr *transpiler) addArgumentToDataSection(op *tracer.EvmInstructionMetadata) string {
-	value := new(uint256.Int)
-	if len(op.Arguments) > 0 {
-		value.SetBytes(op.Arguments)
-	}
-	return tr.dataSection.Add(value)
+func (tr *transpiler) getStorageKey(arguments uint256.Int) string {
+	value := arguments.Hex()
+	return value
+}
+
+func (tr *transpiler) getStorageValue(arguments uint256.Int) *uint256.Int {
+	return &arguments
 }
 
 func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
@@ -290,15 +336,16 @@ func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
 
 	// Load all 8 32-bit words from data section to stack
 	for i := 0; i < 8; i++ {
-		offset := i * 4
+		dataOffset := i * 4
+		stackOffset := i * 4
 		instructions = append(instructions, []prover.Instruction{
 			{
 				Name:     "lw",
-				Operands: []string{"t1", fmt.Sprintf("%d(t0)", offset)},
+				Operands: []string{"t1", fmt.Sprintf("%d(t0)", dataOffset)},
 			},
 			{
 				Name:     "sw",
-				Operands: []string{"t1", fmt.Sprintf("%d(sp)", offset)},
+				Operands: []string{"t1", fmt.Sprintf("%d(sp)", stackOffset)},
 			},
 		}...)
 	}
@@ -320,4 +367,67 @@ func (tr *transpiler) toAssembly() *prover.AssemblyFile {
 		Instructions: tr.instructions,
 		DataSection:  dataSection,
 	}
+}
+
+type DataSection struct {
+	values []*uint256.Int
+}
+
+type StorageSection struct {
+	keyToVar map[string]string
+}
+
+func NewDataSection() *DataSection {
+	return &DataSection{
+		values: make([]*uint256.Int, 0),
+	}
+}
+
+func NewStorageSection() *StorageSection {
+	return &StorageSection{keyToVar: make(map[string]string)}
+}
+
+func (ss *StorageSection) Store(dataSection *DataSection, key string, value *uint256.Int) string {
+	if varName, exists := ss.keyToVar[key]; exists {
+		return varName
+	}
+	varName := dataSection.Add(value)
+	ss.keyToVar[key] = varName
+	return varName
+}
+
+func (ss *StorageSection) Load(dataSection *DataSection, key string) string {
+	if varName, exists := ss.keyToVar[key]; exists {
+		return varName
+	}
+	varName := dataSection.Add(uint256.NewInt(0))
+	ss.keyToVar[key] = varName
+	return varName
+}
+
+func (ds *DataSection) Add(value *uint256.Int) string {
+	ds.values = append(ds.values, value)
+	index := len(ds.values) - 1
+	return fmt.Sprintf("data_var_%d", index)
+}
+
+func (ds *DataSection) Iter() []struct {
+	Name  string
+	Value *uint256.Int
+} {
+	result := make([]struct {
+		Name  string
+		Value *uint256.Int
+	}, len(ds.values))
+
+	for i, value := range ds.values {
+		result[i] = struct {
+			Name  string
+			Value *uint256.Int
+		}{
+			Name:  fmt.Sprintf("data_var_%d", i),
+			Value: value,
+		}
+	}
+	return result
 }

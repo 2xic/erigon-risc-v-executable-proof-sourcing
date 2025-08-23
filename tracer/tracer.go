@@ -5,11 +5,18 @@ import (
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"github.com/erigontech/erigon/params"
 	"github.com/holiman/uint256"
 )
+
+type EvmExecutionState struct {
+	CallValue *uint256.Int
+	CallData  []byte
+	CodeData  []byte
+}
 
 type EvmInstructionMetadata struct {
 	Opcode        vm.OpCode
@@ -24,6 +31,7 @@ type EvmInstructionMetadata struct {
 type StateTracer struct {
 	jumpTable       *vm.JumpTable
 	evmInstructions []*EvmInstructionMetadata
+	executionState  *EvmExecutionState
 }
 
 func NewStateTracer() *StateTracer {
@@ -64,6 +72,13 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 	snapshot := make([]uint256.Int, len(scope.Stack.Data))
 	for i := range len(scope.Stack.Data) {
 		snapshot[i] = scope.Stack.Data[i]
+	}
+
+	// TODO: this should likely not be re-computed
+	t.executionState = &EvmExecutionState{
+		CallValue: scope.Contract.Value(),
+		CallData:  scope.Contract.Input,
+		CodeData:  scope.Contract.Code,
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
@@ -128,10 +143,26 @@ func (tr *SimpleTracer) DeployContract(addr libcommon.Address, bytecode []byte, 
 	return tr.state.SetupContract(addr, bytecode, balance)
 }
 
-func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []byte, gasLimit uint64) ([]*EvmInstructionMetadata, uint64, error) {
-	caller := vm.AccountRef(libcommon.HexToAddress("0xabcd"))
-	_, gasLeft, err := tr.evm.Call(caller, contractAddr, input, gasLimit, uint256.NewInt(0), false)
-	return tr.tracer.evmInstructions, gasLimit - gasLeft, err
+func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []byte, gasLimit uint64, callValue *uint256.Int) ([]*EvmInstructionMetadata, *EvmExecutionState, uint64, error) {
+	if callValue == nil {
+		callValue = uint256.NewInt(0)
+	}
+	callerAddr := libcommon.HexToAddress("0xabcd")
+	caller := vm.AccountRef(callerAddr)
+
+	if callValue.Cmp(uint256.NewInt(0)) > 0 {
+		currentBalance, err := tr.state.GetBalance(callerAddr)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if currentBalance.Cmp(callValue) < 0 {
+			neededBalance := new(uint256.Int).Add(callValue, uint256.NewInt(1000000))
+			tr.state.AddBalance(callerAddr, neededBalance, tracing.BalanceChangeUnspecified)
+		}
+	}
+
+	_, gasLeft, err := tr.evm.Call(caller, contractAddr, input, gasLimit, callValue, false)
+	return tr.tracer.evmInstructions, tr.tracer.executionState, gasLimit - gasLeft, err
 }
 
 func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash) (*uint256.Int, error) {

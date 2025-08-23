@@ -113,10 +113,6 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		return nil, NewPreRuntimeError(err)
 	}
 
-	if err != nil {
-		return nil, NewPreRuntimeError(err)
-	}
-
 	err = mu.Start(entryPoint, 0)
 	if err != nil {
 		return nil, NewRuntimeError(err)

@@ -46,7 +46,6 @@ func TestAddOpcode(t *testing.T) {
 
 	// Verify that we can run the Zk prover on the assembly
 	content, err := assembly.ToToolChainCompatibleAssembly()
-	fmt.Println(content)
 	assert.NoError(t, err)
 	zkVm := prover.NewZkProver(content)
 	output, err := zkVm.TestRun()
@@ -65,7 +64,6 @@ func TestSimpleOpcodes(t *testing.T) {
 		name     string
 		bytecode []byte
 	}{
-
 		{
 			name:     "PUSH0",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.ADD)},
@@ -221,6 +219,14 @@ func TestSimpleOpcodes(t *testing.T) {
 				byte(vm.ADD),
 			},
 		},
+		{
+			name:     "SSTORE",
+			bytecode: []byte{byte(vm.PUSH1), 0x42, byte(vm.PUSH0), byte(vm.SSTORE)},
+		},
+		{
+			name:     "SLOAD",
+			bytecode: []byte{byte(vm.PUSH1), 0x42, byte(vm.PUSH0), byte(vm.SSTORE), byte(vm.PUSH0), byte(vm.SLOAD)},
+		},
 	}
 
 	for _, tc := range tests {
@@ -254,5 +260,136 @@ func TestSimpleOpcodes(t *testing.T) {
 		for i := range evmSnapshot.Snapshots {
 			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instructions %d)", tc.name, i))
 		}
+	}
+}
+
+func TestCallValue(t *testing.T) {
+	testValue := uint256.NewInt(0x42)
+
+	bytecode := []byte{byte(vm.CALLVALUE)}
+
+	assembly, evmSnapshot, err := NewTestRunnerWithConfig(bytecode, TestConfig{
+		CallValue: testValue,
+	}).Execute()
+
+	assert.NoError(t, err)
+	assert.NotNil(t, assembly, "Assembly should not be nil")
+
+	bytecodeResult, err := assembly.ToBytecode()
+	assert.NoError(t, err)
+
+	execution, err := prover.NewUnicornRunner()
+	assert.NoError(t, err)
+	snapshot, err := execution.Execute(bytecodeResult)
+	assert.NoError(t, err)
+
+	snapShot := *snapshot.StackSnapshots
+	assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+	for i := range evmSnapshot.Snapshots {
+		assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CALLVALUE_max (instruction %d)", i))
+	}
+}
+
+func TestCallDataSize(t *testing.T) {
+	testCallData := []byte{0x01, 0x02, 0x03, 0x04}
+
+	bytecode := []byte{byte(vm.CALLDATASIZE)}
+
+	assembly, evmSnapshot, err := NewTestRunnerWithConfig(bytecode, TestConfig{
+		CallData: testCallData,
+	}).Execute()
+
+	assert.NoError(t, err)
+	assert.NotNil(t, assembly, "Assembly should not be nil")
+
+	bytecodeResult, err := assembly.ToBytecode()
+	assert.NoError(t, err)
+
+	execution, err := prover.NewUnicornRunner()
+	assert.NoError(t, err)
+	snapshot, err := execution.Execute(bytecodeResult)
+	assert.NoError(t, err)
+
+	snapShot := *snapshot.StackSnapshots
+	assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+	for i := range evmSnapshot.Snapshots {
+		assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CALLDATASIZE (instruction %d)", i))
+	}
+}
+
+func TestCallDataLoad(t *testing.T) {
+	testCallData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+
+	tests := []struct {
+		name   string
+		offset byte
+	}{
+		{"offset_0", 0x00},
+		{"offset_4", 0x04},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bytecode := []byte{
+				byte(vm.PUSH1), tc.offset,
+				byte(vm.CALLDATALOAD),
+			}
+
+			assembly, evmSnapshot, err := NewTestRunnerWithConfig(bytecode, TestConfig{
+				CallData: testCallData,
+			}).Execute()
+
+			assert.NoError(t, err)
+			assert.NotNil(t, assembly, "Assembly should not be nil")
+
+			bytecodeResult, err := assembly.ToBytecode()
+			assert.NoError(t, err)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecodeResult)
+			assert.NoError(t, err)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+			for i := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CALLDATALOAD %s (instruction %d)", tc.name, i))
+			}
+		})
+	}
+}
+
+func TestCodeCopy(t *testing.T) {
+	// Create bytecode that copies itself to memory, then loads it back
+	bytecode := []byte{
+		byte(vm.PUSH1), 0x08,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.CODECOPY),
+		byte(vm.PUSH1), 0x00,
+		byte(vm.MLOAD),
+	}
+
+	assembly, evmSnapshot, err := NewTestRunner(bytecode).Execute()
+
+	assert.NoError(t, err)
+	assert.NotNil(t, assembly, "Assembly should not be nil")
+
+	bytecodeResult, err := assembly.ToBytecode()
+	assert.NoError(t, err)
+
+	execution, err := prover.NewUnicornRunner()
+	assert.NoError(t, err)
+	snapshot, err := execution.Execute(bytecodeResult)
+	assert.NoError(t, err)
+
+	snapShot := *snapshot.StackSnapshots
+	assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+	for i := range evmSnapshot.Snapshots {
+		assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CODECOPY+MLOAD (instruction %d)", i))
 	}
 }
