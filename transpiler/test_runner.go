@@ -33,7 +33,7 @@ func NewTestRunnerWithConfig(program []byte, config TestConfig) *testRunner {
 	if config.CallValue == nil {
 		config.CallValue = uint256.NewInt(0)
 	}
-	
+
 	return &testRunner{
 		program: program,
 		config:  &config,

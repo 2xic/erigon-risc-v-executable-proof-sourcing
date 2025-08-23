@@ -1,9 +1,22 @@
+version: 2
+
 run:
   skip-dirs:
     - erigon
 
+linters-settings:
+  forbidigo:
+    forbid:
+      - fmt.Printf
+      - fmt.Println  
+      - print
+      - println
+  goimports:
+    local-prefixes: erigon-transpiler-risc-v
+
 linters:
   enable:
-    - gofmt
-    - goimports
+    - forbidigo
     - govet
+    - ineffassign
+    - unused
