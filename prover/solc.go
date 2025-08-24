@@ -36,8 +36,7 @@ func CompileSolidity(source, contractName string) ([]byte, error) {
 	return nil, nil
 }
 
-func EncodeCallData(functionName string) []byte {
-	signature := functionName + "()"
+func EncodeCallData(signature string) []byte {
 	hash := crypto.Keccak256([]byte(signature))
 	return hash[:4]
 }

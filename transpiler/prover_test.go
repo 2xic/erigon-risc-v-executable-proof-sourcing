@@ -2,7 +2,6 @@ package main
 
 import (
 	"erigon-transpiler-risc-v/prover"
-	"fmt"
 	"testing"
 
 	"github.com/holiman/uint256"
@@ -221,21 +220,28 @@ func TestSolidityCompilation(t *testing.T) {
 		t.Fatal("Expected non-empty bytecode")
 	}
 
-	callData := prover.EncodeCallData("inc")
-	assembly, _, err := NewTestRunnerWithConfig(bytecode, TestConfig{
-		CallValue: uint256.NewInt(0),
-		CallData:  callData,
-	}).Execute()
-	assert.NoError(t, err)
-	fmt.Println(assembly)
+	calddatas := [][]byte{
+		// Should execute correctly
+		prover.EncodeCallData("inc()"),
+		prover.EncodeCallData("get()"),
+		prover.EncodeCallData("dec()"),
+		// Reverts
+		prover.EncodeCallData("ops()"),
+	}
+	for _, callData := range calddatas {
+		assembly, _, err := NewTestRunnerWithConfig(bytecode, TestConfig{
+			CallValue: uint256.NewInt(0),
+			CallData:  callData,
+		}).Execute()
+		assert.NoError(t, err)
 
-	content, err := assembly.ToToolChainCompatibleAssembly()
-	assert.NoError(t, err)
-	fmt.Println(content)
+		content, err := assembly.ToToolChainCompatibleAssembly()
+		assert.NoError(t, err)
 
-	zkVm := prover.NewZkProver(content)
-	output, err := zkVm.TestRun()
-	assert.NoError(t, err)
-	// All zero as we don't write any of the output.
-	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)
+		zkVm := prover.NewZkProver(content)
+		output, err := zkVm.TestRun()
+		assert.NoError(t, err)
+		// All zero as we don't write any of the output.
+		assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)
+	}
 }

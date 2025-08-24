@@ -169,6 +169,99 @@ shr_done:
     addi sp, sp, 32
     ret
 
+# 256-bit shift left logical operation
+# a0 = value address, a1 = shift amount address, result stored at a0
+.global shl256_stack_scratch
+shl256_stack_scratch:
+    # Load shift amount (only use lower 32 bits)
+    lw t6, 0(a1)               # shift amount
+    
+    # Handle shifts >= 256 (result is 0)
+    li t0, 256
+    bgeu t6, t0, shl_zero_result
+    
+    # Handle shifts >= 32 (word-level shifts)
+    li t0, 32
+    blt t6, t0, shl_bit_shift
+    
+    # Word-level shift (shift >= 32)
+    srli t1, t6, 5             # t1 = words to shift (t6 / 32)
+    andi t6, t6, 31            # t6 = remaining bits to shift (t6 % 32)
+    
+    # Shift words (from high to low, opposite of SHR)
+    li t0, 7                   # source index (start from MSW)
+    sub t2, t0, t1             # destination index
+    
+shl_word_loop:
+    bltz t2, shl_word_zero     # if dest < 0, fill with zero
+    
+    slli t4, t2, 2             # dest offset
+    add t5, a0, t4             # dest address
+    
+    slli t4, t0, 2             # src offset
+    add t3, a0, t4             # src address
+    lw t4, 0(t3)               # load src word
+    sw t4, 0(t5)               # store to dest
+    
+    addi t0, t0, -1
+    addi t2, t2, -1
+    bgez t0, shl_word_loop
+    
+    j shl_bit_shift_check
+
+shl_word_zero:
+    slli t4, t0, 2             # offset
+    add t5, a0, t4             # address
+    sw zero, 0(t5)             # store zero
+    addi t0, t0, -1
+    bgez t0, shl_word_loop
+    
+shl_bit_shift_check:
+    beqz t6, shl_done          # if no bit shift needed, done
+    
+shl_bit_shift:
+    # Bit-level shift within words (from high to low)
+    li t0, 7                   # word index (start from MSW)
+    li t1, 0                   # carry from previous word
+    
+shl_bit_loop:
+    slli t2, t0, 2             # offset
+    add t3, a0, t2             # address
+    lw t4, 0(t3)               # load word
+    
+    # Extract bits that will be shifted out (for next word's carry)
+    li t5, 32
+    sub t5, t5, t6             # t5 = 32 - shift_amount
+    sll t2, t4, t6             # shift left
+    srl t5, t4, t5             # bits to carry to next higher word
+    
+    # Perform the shift and add carry
+    or t4, t2, t1              # add carry from previous word
+    sw t4, 0(t3)               # store result
+    
+    mv t1, t5                  # carry for next iteration
+    
+    addi t0, t0, -1
+    bgez t0, shl_bit_loop
+    
+    j shl_done
+
+shl_zero_result:
+    # Clear all words to zero
+    li t0, 0
+shl_zero_loop:
+    slli t1, t0, 2
+    add t2, a0, t1
+    sw zero, 0(t2)
+    addi t0, t0, 1
+    li t1, 8
+    blt t0, t1, shl_zero_loop
+
+shl_done:
+    # Pop the shift amount, leave result on stack
+    addi sp, sp, 32
+    ret
+
 # 256-bit signed less than comparison
 # a0 = first value address, a1 = second value address
 # Result (0 or 1) stored at a1 address

@@ -14,7 +14,7 @@ lint-rust:
 	cd prover/openvm && cargo fmt
 
 test:
-	cd transpiler && go test -v ./...
+	cd transpiler && go test -timeout 300s -v ./...
 
 remove_go_cache:
 	rm -rf ~/.cache/go-build

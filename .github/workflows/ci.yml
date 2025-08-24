@@ -148,7 +148,7 @@ jobs:
     # Testing
     - name: Run Go tests
       working-directory: ./transpiler
-      run: go test -v ./...
+      run: make test
     
     - name: Run Rust tests
       working-directory: ./prover/openvm
