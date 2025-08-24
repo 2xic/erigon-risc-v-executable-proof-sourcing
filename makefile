@@ -1,17 +1,20 @@
-.PHONY: lint lint-go lint-rust
+.PHONY: lint lint-go lint-rust format-go
 
 lint: lint-go lint-rust
 	echo "done"
 
 lint-go:
-	cd transpiler && golangci-lint run
+	@which goimports > /dev/null || go install golang.org/x/tools/cmd/goimports@latest
+	cd transpiler && golangci-lint run --config ../golangci.yml
+	cd transpiler && gofmt -w .
+	cd transpiler && goimports -w .
 
 lint-rust:
 	cd prover/openvm && cargo clippy --all-targets --all-features -- -D warnings
 	cd prover/openvm && cargo fmt
 
 test:
-	cd transpiler && go test -v ./...
+	cd transpiler && go test -timeout 300s -v ./...
 
 remove_go_cache:
 	rm -rf ~/.cache/go-build

@@ -1,8 +1,10 @@
 package prover
 
 import (
+	"debug/elf"
 	"encoding/binary"
 	"fmt"
+	"os"
 
 	"github.com/holiman/uint256"
 	uc "github.com/unicorn-engine/unicorn/bindings/go/unicorn"
@@ -18,31 +20,6 @@ type ExecutionResult struct {
 
 func NewUnicornRunner() (*VmRunner, error) {
 	return &VmRunner{}, nil
-}
-
-type RuntimeError struct {
-	Err   error
-	Stage string // "pre-runtime", "runtime" and "post-runtime"
-}
-
-func (e RuntimeError) Error() string {
-	return fmt.Sprintf("%s error: %v", e.Stage, e.Err)
-}
-
-func (e RuntimeError) Unwrap() error {
-	return e.Err
-}
-
-func NewRuntimeError(err error) error {
-	return RuntimeError{Err: err, Stage: "runtime"}
-}
-
-func NewPreRuntimeError(err error) error {
-	return RuntimeError{Err: err, Stage: "pre-runtime"}
-}
-
-func NewPostRuntimeError(err error) error {
-	return RuntimeError{Err: err, Stage: "post-runtime"}
 }
 
 func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
@@ -108,6 +85,7 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		*/
 
 		if instr == uint32(EbreakInstr) {
+			//	debugStackMemory(mu, stackAddr, memSize)
 			snapshot, err := printStackState(mu, stackAddr, memSize)
 			if err != nil {
 				panic(NewRuntimeError(err))
@@ -130,12 +108,12 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		return nil, NewPreRuntimeError(err)
 	}
 
-	err = mu.MemWrite(codeAddr, bytecode)
+	entryPoint, err := loadElfSections(mu, bytecode)
 	if err != nil {
 		return nil, NewPreRuntimeError(err)
 	}
 
-	err = mu.Start(codeAddr+0x00001000, 0)
+	err = mu.Start(entryPoint, 0)
 	if err != nil {
 		return nil, NewRuntimeError(err)
 	}
@@ -151,6 +129,59 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	}
 	return executionResults, nil
 }
+
+/*
+func debugStackMemory(mu uc.Unicorn, stackBase, memSize uint64) {
+	sp, _ := mu.RegRead(uc.RISCV_REG_SP)
+	stackTop := stackBase + memSize - 16
+
+	fmt.Printf("=== STACK DEBUG ===\n")
+	fmt.Printf("Stack base: 0x%x\n", stackBase)
+	fmt.Printf("Stack top: 0x%x\n", stackTop)
+	fmt.Printf("SP: 0x%x\n", sp)
+	fmt.Printf("Stack size used: %d bytes\n", stackTop-sp)
+
+	// Print raw memory in 4-byte chunks from SP to stackTop
+	fmt.Printf("Raw stack memory (from SP upward):\n")
+	for addr := sp; addr < stackTop; addr += 4 {
+		data, err := mu.MemRead(addr, 4)
+		if err != nil {
+			fmt.Printf("  0x%x: ERROR reading memory\n", addr)
+			continue
+		}
+		word := binary.LittleEndian.Uint32(data)
+		fmt.Printf("  0x%x: 0x%08x (%d)\n", addr, word, word)
+	}
+	fmt.Printf("===================\n")
+}
+
+	func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, error) {
+		sp, _ := mu.RegRead(uc.RISCV_REG_SP)
+		stackTop := stackBase + memSize - 16
+		if sp > stackTop {
+			return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)
+		}
+		numWords := (stackTop - sp) / 4
+		// 8 words per 256-bit entry (32-bit words)
+		numEntries := numWords / 8
+		stack := make([]uint256.Int, numEntries)
+		fmt.Println("numEntries:", numEntries)
+		for i := range numEntries {
+			addr := sp + (i * 8 * 4)
+			// Since our loadFromDataSection puts the significant word at sp+0,
+			// we just need to read the first 4 bytes as a uint32
+			data, err := mu.MemRead(addr, 4)
+			if err != nil {
+				return nil, err
+			}
+			word := binary.LittleEndian.Uint32(data)
+
+			fmt.Printf("Entry %d: addr=0x%x, word=0x%x\n", i, addr, word)
+			stack[uint64(len(stack)-1)-i] = *uint256.NewInt(uint64(word))
+		}
+		return stack, nil
+	}
+*/
 
 func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, error) {
 	sp, _ := mu.RegRead(uc.RISCV_REG_SP)
@@ -180,4 +211,63 @@ func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, e
 		stack[uint64(len(stack)-1)-i].SetBytes(result)
 	}
 	return stack, nil
+}
+
+func loadElfSections(mu uc.Unicorn, bytecode []byte) (uint64, error) {
+	tmpFile, err := os.CreateTemp("", "*.elf")
+	if err != nil {
+		return 0, err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(bytecode); err != nil {
+		return 0, err
+	}
+	tmpFile.Close()
+
+	elfFile, err := elf.Open(tmpFile.Name())
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse ELF file: %v", err)
+	}
+	defer elfFile.Close()
+
+	for _, section := range elfFile.Sections {
+		if section.Type != elf.SHT_PROGBITS || section.Size == 0 || section.Addr == 0 {
+			continue
+		}
+
+		data, err := section.Data()
+		if err != nil {
+			continue
+		}
+
+		mu.MemWrite(section.Addr, data)
+	}
+
+	return elfFile.Entry, nil
+}
+
+type RuntimeError struct {
+	Err   error
+	Stage string // "pre-runtime", "runtime" and "post-runtime"
+}
+
+func (e RuntimeError) Error() string {
+	return fmt.Sprintf("%s error: %v", e.Stage, e.Err)
+}
+
+func (e RuntimeError) Unwrap() error {
+	return e.Err
+}
+
+func NewRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "runtime"}
+}
+
+func NewPreRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "pre-runtime"}
+}
+
+func NewPostRuntimeError(err error) error {
+	return RuntimeError{Err: err, Stage: "post-runtime"}
 }
