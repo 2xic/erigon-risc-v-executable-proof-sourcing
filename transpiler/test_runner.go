@@ -3,7 +3,6 @@ package main
 import (
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
-	"fmt"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/holiman/uint256"
