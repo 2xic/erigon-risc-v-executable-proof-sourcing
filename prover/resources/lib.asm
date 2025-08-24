@@ -6,6 +6,7 @@
 .section .text
 
 # Optimized 256-bit addition using a loop
+# a0 = first value address, a1 = second value address (result stored here)
 .global add256_stack_scratch
 add256_stack_scratch:
     li t6, 0                    # carry = 0
@@ -31,8 +32,8 @@ add_loop:
     sltu t4, t5, t2             # carry2 = (result < temp_sum)
     or t6, t3, t4               # carry = carry1 | carry2
     
-    # Store result[i]
-    add t2, a2, t1              # address of result[i]
+    # Store result[i] back to second operand location (a1)
+    add t2, a1, t1              # address of result[i]
     sw t5, 0(t2)                # store result[i]
     
     # Loop control

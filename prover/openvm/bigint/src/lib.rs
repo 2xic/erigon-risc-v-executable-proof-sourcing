@@ -1,6 +1,5 @@
 #![no_std]
 
-/*
 use openvm_ruint::aliases::U256;
 
 // Utility functions for working with U256 from assembly
@@ -39,25 +38,17 @@ extern "C" fn u256_to_words(value: *const U256, words: *mut u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn add256_stack_scratch(
-    num1_ptr: *const u32,
-    num2_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
+pub extern "C" fn openvm_add256_stack_scratch(num1_ptr: *const u32, num2_ptr: *mut u32) {
     let a = u256_from_words(num1_ptr);
     let b = u256_from_words(num2_ptr);
 
     let result = a + b;
 
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, num2_ptr);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn eq256_stack_scratch(
-    num1_ptr: *const u32,
-    num2_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
+pub extern "C" fn openvm_eq256_stack_scratch(num1_ptr: *const u32, num2_ptr: *mut u32) {
     let a = u256_from_words(num1_ptr);
     let b = u256_from_words(num2_ptr);
     let result = if a == b {
@@ -65,15 +56,11 @@ pub extern "C" fn eq256_stack_scratch(
     } else {
         U256::from(0u32)
     };
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, num2_ptr);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn lt256_stack_scratch(
-    num1_ptr: *const u32,
-    num2_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
+pub extern "C" fn openvm_lt256_stack_scratch(num1_ptr: *const u32, num2_ptr: *mut u32) {
     let a = u256_from_words(num1_ptr);
     let b = u256_from_words(num2_ptr);
     let result = if a < b {
@@ -81,15 +68,11 @@ pub extern "C" fn lt256_stack_scratch(
     } else {
         U256::from(0u32)
     };
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, num2_ptr);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gt256_stack_scratch(
-    num1_ptr: *const u32,
-    num2_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
+pub extern "C" fn openvm_gt256_stack_scratch(num1_ptr: *const u32, num2_ptr: *mut u32) {
     let a = u256_from_words(num1_ptr);
     let b = u256_from_words(num2_ptr);
     let result = if a > b {
@@ -97,48 +80,20 @@ pub extern "C" fn gt256_stack_scratch(
     } else {
         U256::from(0u32)
     };
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, num2_ptr);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn slt256_stack_scratch(
-    num1_ptr: *const u32,
-    num2_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
-    let a = u256_from_words(num1_ptr);
-    let b = u256_from_words(num2_ptr);
-    // For signed comparison, check the most significant bit (sign bit)
-    // U256 has 4 limbs of 64 bits each, so MSB is in limb[3]
-    let a_sign = (a.as_limbs()[3] >> 63) != 0; // Check MSB of highest limb
-    let b_sign = (b.as_limbs()[3] >> 63) != 0;
-
-    let result = if a_sign != b_sign {
-        // Different signs: negative < positive
-        if a_sign { U256::from(1u32) } else { U256::from(0u32) }
-    } else {
-        // Same signs: compare magnitudes
-        if a < b { U256::from(1u32) } else { U256::from(0u32) }
-    };
-    u256_to_words(&result, result_ptr);
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn shr256_stack_scratch(
-    value_ptr: *const u32,
-    shift_ptr: *const u32,
-    result_ptr: *mut u32,
-) {
+pub extern "C" fn openvm_shr256_stack_scratch(value_ptr: *const u32, shift_ptr: *mut u32) {
     let value = u256_from_words(value_ptr);
     let shift = u256_from_words(shift_ptr);
     let result = value >> shift;
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, shift_ptr);
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn not256_stack_scratch(value_ptr: *const u32, result_ptr: *mut u32) {
+pub extern "C" fn openvm_not256_stack_scratch(value_ptr: *mut u32) {
     let value = u256_from_words(value_ptr);
     let result = !value;
-    u256_to_words(&result, result_ptr);
+    u256_to_words(&result, value_ptr);
 }
-*/

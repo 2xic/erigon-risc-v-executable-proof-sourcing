@@ -54,10 +54,9 @@ execute:
 	sw t1, 60(sp)
 	
 	# Perform 256-bit addition
-	addi a0, sp, 0        # First number
-	addi a1, sp, 32       # Second number  
-	addi a2, sp, 0        # Result (overwrite first)
-	call add256_stack_scratch
+	addi a0, sp, 32        # First number
+	addi a1, sp, 0         # Second number  
+	call openvm_add256_stack_scratch
 	
 	# Reveal results
 	lw a0, 0(sp)

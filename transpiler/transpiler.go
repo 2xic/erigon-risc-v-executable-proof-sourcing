@@ -198,7 +198,6 @@ func (tr *transpiler) add256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
-		{Name: "addi", Operands: []string{"a2", "sp", "32"}},
 		{Name: "call", Operands: []string{"add256_stack_scratch"}},
 	}
 }
