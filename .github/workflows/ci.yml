@@ -66,6 +66,14 @@ jobs:
           libc6-dev \
           gcc-riscv64-linux-gnu
     
+    - name: Install Solidity compiler (solc)
+      run: |
+        # Install the latest stable version of solc
+        curl -fsSL https://github.com/ethereum/solidity/releases/download/v0.8.28/solc-static-linux -o solc
+        chmod +x solc
+        sudo mv solc /usr/local/bin/solc
+        solc --version
+    
     - name: Cache Unicorn build
       id: cache-unicorn
       uses: actions/cache@v4
