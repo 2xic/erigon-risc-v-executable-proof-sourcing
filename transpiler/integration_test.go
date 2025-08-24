@@ -393,3 +393,46 @@ func TestCodeCopy(t *testing.T) {
 		assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CODECOPY+MLOAD (instruction %d)", i))
 	}
 }
+
+func TestHaltingOpcodes(t *testing.T) {
+	tests := []struct {
+		name           string
+		bytecode       []byte
+		expectedStatus int
+	}{
+		{
+			name:     "RETURN",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.RETURN)},
+		},
+		{
+			name:     "REVERT",
+			bytecode: []byte{byte(vm.PUSH0), byte(vm.PUSH0), byte(vm.REVERT)},
+		},
+		{
+			name:     "INVALID",
+			bytecode: []byte{byte(vm.INVALID)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assembly, evmSnapshot, err := NewTestRunner(tc.bytecode).Execute()
+			assert.NoError(t, err)
+
+			bytecode, err := assembly.ToBytecode()
+			assert.NoError(t, err)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+			for i := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instruction %d)", tc.name, i))
+			}
+		})
+	}
+}

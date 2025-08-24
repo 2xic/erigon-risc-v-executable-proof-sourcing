@@ -2,6 +2,7 @@ package tracer
 
 import (
 	"math/big"
+	"strings"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
@@ -162,6 +163,11 @@ func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []
 	}
 
 	_, gasLeft, err := tr.evm.Call(caller, contractAddr, input, gasLimit, callValue, false)
+	// We don't want these errors to propagate
+	if err == vm.ErrExecutionReverted || (err != nil && strings.Contains(err.Error(), "invalid opcode:")) {
+		log.Warn("vm error: %w", err)
+		err = nil
+	}
 	return tr.tracer.evmInstructions, tr.tracer.executionState, gasLimit - gasLeft, err
 }
 
