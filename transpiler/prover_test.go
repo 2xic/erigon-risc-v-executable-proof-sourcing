@@ -99,3 +99,93 @@ execute:
 	assert.NoError(t, err)
 	assert.Equal(t, "Execution output: [238, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18]", output)
 }
+
+func TestDataSectionConstant(t *testing.T) {
+	// Test storing a 256-bit constant in data section and reading it back
+	content := `
+.section .data
+test_constant:
+    .word 0x12345678
+    .word 0x9ABCDEF0
+    .word 0x11111111
+    .word 0x22222222
+    .word 0x33333333
+    .word 0x44444444
+    .word 0x55555555
+    .word 0x66666666
+
+.section .text
+.global execute
+execute:
+	# Save stack and return address
+	mv s2, sp
+	mv s1, ra
+	
+	# Allocate 32 bytes on stack for 256-bit value
+	addi sp, sp, -32
+	
+	# Load address of test constant
+	la t0, test_constant
+	
+	# Load all 8 32-bit words from data section to stack
+	lw t1, 0(t0)
+	sw t1, 0(sp)
+	lw t1, 4(t0)
+	sw t1, 4(sp)
+	lw t1, 8(t0)
+	sw t1, 8(sp)
+	lw t1, 12(t0)
+	sw t1, 12(sp)
+	lw t1, 16(t0)
+	sw t1, 16(sp)
+	lw t1, 20(t0)
+	sw t1, 20(sp)
+	lw t1, 24(t0)
+	sw t1, 24(sp)
+	lw t1, 28(t0)
+	sw t1, 28(sp)
+	
+	# Reveal the 8 32-bit words
+	lw a0, 0(sp)
+	li a1, 0
+	call reveal_u32_func
+	
+	lw a0, 4(sp)
+	li a1, 1
+	call reveal_u32_func
+	
+	lw a0, 8(sp)
+	li a1, 2
+	call reveal_u32_func
+	
+	lw a0, 12(sp)
+	li a1, 3
+	call reveal_u32_func
+	
+	lw a0, 16(sp)
+	li a1, 4
+	call reveal_u32_func
+	
+	lw a0, 20(sp)
+	li a1, 5
+	call reveal_u32_func
+	
+	lw a0, 24(sp)
+	li a1, 6
+	call reveal_u32_func
+	
+	lw a0, 28(sp)
+	li a1, 7
+	call reveal_u32_func
+	
+	# Restore stack and return address
+	mv sp, s2
+	mv ra, s1
+	ret
+	`
+	zkVm := prover.NewZkProver(content)
+	output, err := zkVm.TestRun()
+	assert.NoError(t, err)
+	// Expected: 0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666
+	assert.Equal(t, "Execution output: [120, 86, 52, 18, 240, 222, 188, 154, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 68, 68, 68, 68, 85, 85, 85, 85, 102, 102, 102, 102]", output)
+}

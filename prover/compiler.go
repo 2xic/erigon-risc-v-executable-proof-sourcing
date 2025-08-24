@@ -8,12 +8,20 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/holiman/uint256"
 )
 
 const InstructionEBREAK = "EBREAK"
 
 type AssemblyFile struct {
 	Instructions []Instruction
+	DataSection  []DataVariable
+}
+
+type DataVariable struct {
+	Name  string
+	Value *uint256.Int
 }
 
 //go:embed resources/lib.asm
@@ -26,7 +34,11 @@ type Instruction struct {
 
 func (a *AssemblyFile) toDebugFile() string {
 	instructions := a.toFile(false)
+	dataSection := a.generateDataSection()
 	file := `
+.section .data
+%s
+
 .section .text
 .global execute
 execute:
@@ -34,8 +46,29 @@ execute:
     jr x0
 %s
 	`
-	content := fmt.Sprintf(file, instructions, string(libFile))
+	content := fmt.Sprintf(file, dataSection, instructions, string(libFile))
 	return content
+}
+
+func (a *AssemblyFile) generateDataSection() string {
+	if len(a.DataSection) == 0 {
+		return ""
+	}
+
+	var lines []string
+	for _, dataVar := range a.DataSection {
+		bytes := dataVar.Value.Bytes32()
+		lines = append(lines, fmt.Sprintf("%s:", dataVar.Name))
+		for i := 0; i < 8; i++ {
+			offset := (7 - i) * 4
+			word := uint32(bytes[offset+3]) |
+				uint32(bytes[offset+2])<<8 |
+				uint32(bytes[offset+1])<<16 |
+				uint32(bytes[offset])<<24
+			lines = append(lines, fmt.Sprintf("    .word 0x%08x", word))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *AssemblyFile) toZkFile() string {
@@ -57,7 +90,14 @@ func (a *AssemblyFile) toFile(skipEbreak bool) string {
 }
 
 func (f *AssemblyFile) ToToolChainCompatibleAssembly() (string, error) {
-	format := `
+	dataSection := f.generateDataSection()
+	var format string
+	if dataSection != "" {
+		format = `
+.section .data
+%s
+
+.section .text
 .global execute
 execute:
 	# Save stack
@@ -71,7 +111,24 @@ execute:
 	mv ra, s1
 	ret	
 	`
-	return fmt.Sprintf(format, f.toZkFile()), nil
+		return fmt.Sprintf(format, dataSection, f.toZkFile()), nil
+	} else {
+		format = `
+.global execute
+execute:
+	# Save stack
+	mv s2, sp
+	mv s1, ra
+
+%s
+
+	# Restore stack
+	mv sp, s2
+	mv ra, s1
+	ret	
+	`
+		return fmt.Sprintf(format, f.toZkFile()), nil
+	}
 }
 
 // Used by the testing setup
@@ -105,6 +162,7 @@ func (f *AssemblyFile) ToBytecode() ([]byte, error) {
 		"-static",
 		"-Wl,--entry=execute",
 		"-Wl,-Ttext=0x1000",
+		"-Wl,-Tdata=0x12000",
 		"-o", objFile,
 		tmpFile.Name())
 	var stdout, stderr bytes.Buffer
