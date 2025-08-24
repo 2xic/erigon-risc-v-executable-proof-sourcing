@@ -147,7 +147,6 @@ jobs:
       
     # Testing
     - name: Run Go tests
-      working-directory: ./transpiler
       run: make test
     
     - name: Run Rust tests
