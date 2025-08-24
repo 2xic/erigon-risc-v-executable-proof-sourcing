@@ -2,8 +2,10 @@ package main
 
 import (
 	"erigon-transpiler-risc-v/prover"
+	"fmt"
 	"testing"
 
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -188,4 +190,53 @@ execute:
 	assert.NoError(t, err)
 	// Expected: 0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666
 	assert.Equal(t, "Execution output: [120, 86, 52, 18, 240, 222, 188, 154, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 68, 68, 68, 68, 85, 85, 85, 85, 102, 102, 102, 102]", output)
+}
+
+func TestSolidityCompilation(t *testing.T) {
+	counterSource := `
+		pragma solidity ^0.8.26;
+
+		contract Counter {
+			uint256 public count;
+
+			function get() public view returns (uint256) {
+				return count;
+			}
+
+			function inc() public {
+				count += 1;
+			}
+
+			function dec() public {
+				count -= 1;
+			}
+		}
+	`
+
+	bytecode, err := prover.CompileSolidity(counterSource, "Counter")
+	if err != nil {
+		t.Fatalf("Failed to compile Solidity: %v", err)
+	}
+
+	if len(bytecode) == 0 {
+		t.Fatal("Expected non-empty bytecode")
+	}
+
+	callData := prover.EncodeCallData("inc")
+	assembly, _, err := NewTestRunnerWithConfig(bytecode, TestConfig{
+		CallValue: uint256.NewInt(0),
+		CallData:  callData,
+	}).Execute()
+	assert.NoError(t, err)
+	fmt.Println(assembly)
+
+	content, err := assembly.ToToolChainCompatibleAssembly()
+	assert.NoError(t, err)
+	fmt.Println(content)
+
+	zkVm := prover.NewZkProver(content)
+	output, err := zkVm.TestRun()
+	assert.NoError(t, err)
+	// All zero as we don't write any of the output.
+	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)
 }

@@ -88,7 +88,7 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 		return "", err
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "run" /*, "--input", "0x010A00000000000000"*/)
+	output, err := cli.Execute("cargo", "openvm", "run")
 	if err != nil {
 		return "", err
 	}

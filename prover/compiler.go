@@ -85,6 +85,8 @@ func (a *AssemblyFile) toFile(skipEbreak bool) string {
 		instructions = append(instructions, stringified)
 	}
 
+	fmt.Println(libFile)
+
 	content := strings.Join(instructions, "\n")
 	return content
 }
@@ -110,8 +112,9 @@ execute:
 	mv sp, s2
 	mv ra, s1
 	ret	
+%s
 	`
-		return fmt.Sprintf(format, dataSection, f.toZkFile()), nil
+		return fmt.Sprintf(format, dataSection, f.toZkFile(), libFile), nil
 	} else {
 		format = `
 .global execute
@@ -126,8 +129,9 @@ execute:
 	mv sp, s2
 	mv ra, s1
 	ret	
+%s
 	`
-		return fmt.Sprintf(format, f.toZkFile()), nil
+		return fmt.Sprintf(format, f.toZkFile(), libFile), nil
 	}
 }
 

@@ -85,8 +85,8 @@ shr256_stack_scratch:
     blt t6, t0, shr_bit_shift
     
     # Word-level shift (shift >= 32)
-    div t1, t6, t0             # t1 = words to shift
-    rem t6, t6, t0             # t6 = remaining bits to shift
+    srli t1, t6, 5             # t1 = words to shift (t6 / 32)
+    andi t6, t6, 31            # t6 = remaining bits to shift (t6 % 32)
     
     # Shift words
     li t0, 0                   # source index
