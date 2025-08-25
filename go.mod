@@ -23,6 +23,8 @@ require (
 	github.com/RoaringBitmap/roaring/v2 v2.4.3 // indirect
 	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
+	github.com/alexflint/go-arg v1.6.0 // indirect
+	github.com/alexflint/go-scalar v1.2.0 // indirect
 	github.com/anacrolix/chansync v0.3.0 // indirect
 	github.com/anacrolix/dht/v2 v2.21.1 // indirect
 	github.com/anacrolix/envpprof v1.3.0 // indirect

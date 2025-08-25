@@ -1,4 +1,4 @@
-package main
+package transpiler
 
 import (
 	"fmt"
@@ -93,6 +93,18 @@ func TestSimpleOpcodes(t *testing.T) {
 		{
 			name:     "SHR",
 			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SHR)},
+		},
+		{
+			name:     "SHL_simple",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH1), 0x2, byte(vm.SHL)},
+		},
+		{
+			name:     "SHL_zero_shift",
+			bytecode: []byte{byte(vm.PUSH1), 0x0, byte(vm.PUSH1), 0x42, byte(vm.SHL)},
+		},
+		{
+			name:     "SHL_zero_value",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH0), byte(vm.SHL)},
 		},
 		{
 			name:     "EQ",

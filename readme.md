@@ -7,8 +7,10 @@ Current status will be updated in the [Opcode status](./docs/opcode_status.md) d
 ## Resources
 
 ### Documents
-Some documents on architecture
+Some documents that might be of interests:
+- [CLI Tool](./docs/cli.md)
 - [Testing setup](./docs/testing_setup.md)
+- [Opcode status](./docs/opcode_status.md)
 
 ### Project specific
 - [Development updates](https://github.com/eth-protocol-fellows/cohort-six/blob/master/development-updates.md) 

@@ -68,18 +68,48 @@ func (cli *Cli) Execute(arg ...string) (string, error) {
 	return output.String(), err
 }
 
-func (zkVm *ZkProver) Prove() (string, error) {
+func (cli *Cli) readFile(name string) ([]byte, error) {
+	path := path.Join(cli.workSpace, name)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+type ProofGeneration struct {
+	Proof  []byte
+	AppVK  []byte
+	Stdout string
+}
+
+func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
 	cli, err := zkVm.SetupExecution()
 	if err != nil {
-		return "", NewZkProverError("failed to setup execution", err)
+		return ProofGeneration{}, NewZkProverError("failed to setup execution", err)
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "prove", "app", "--input", "0x010A00000000000000")
+	output, err := cli.Execute("cargo", "openvm", "prove", "app")
 	if err != nil {
-		return "", NewZkProverError("failed to execute prove command", err)
+		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
 
-	return string(output), nil
+	proof, err := cli.readFile("prover.app.proof")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+	appVk, err := cli.readFile("target/openvm/app.vk")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+
+	results := ProofGeneration{
+		Proof:  proof,
+		AppVK:  appVk,
+		Stdout: output,
+	}
+
+	return results, nil
 }
 
 func (zkVm *ZkProver) TestRun() (string, error) {
@@ -88,7 +118,7 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 		return "", err
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "run" /*, "--input", "0x010A00000000000000"*/)
+	output, err := cli.Execute("cargo", "openvm", "run")
 	if err != nil {
 		return "", err
 	}

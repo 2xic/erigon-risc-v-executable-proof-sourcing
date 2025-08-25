@@ -14,6 +14,13 @@ import (
 
 const InstructionEBREAK = "EBREAK"
 
+type RuntimeTarget int
+
+const (
+	RuntimeUnicorn RuntimeTarget = iota
+	RuntimeTargetOpenVM
+)
+
 type AssemblyFile struct {
 	Instructions []Instruction
 	DataSection  []DataVariable
@@ -33,7 +40,7 @@ type Instruction struct {
 }
 
 func (a *AssemblyFile) toDebugFile() string {
-	instructions := a.toFile(false)
+	instructions := a.toFile(RuntimeUnicorn)
 	dataSection := a.generateDataSection()
 	file := `
 .section .data
@@ -72,17 +79,38 @@ func (a *AssemblyFile) generateDataSection() string {
 }
 
 func (a *AssemblyFile) toZkFile() string {
-	return a.toFile(true)
+	return a.toFile(RuntimeTargetOpenVM)
 }
 
-func (a *AssemblyFile) toFile(skipEbreak bool) string {
+func (a *AssemblyFile) toFile(target RuntimeTarget) string {
+	// TODO: this should have a nicer abstraction
+	openVMPrecompiles := map[string]string{
+		"add256_stack_scratch": "openvm_add256_stack_scratch",
+		"eq256_stack_scratch":  "openvm_eq256_stack_scratch",
+		"lt256_stack_scratch":  "openvm_lt256_stack_scratch",
+		"gt256_stack_scratch":  "openvm_gt256_stack_scratch",
+		"shr256_stack_scratch": "openvm_shr256_stack_scratch",
+		"not256_stack_scratch": "openvm_not256_stack_scratch",
+	}
 	instructions := make([]string, 0)
 	for _, instr := range a.Instructions {
-		if skipEbreak && instr.Name == InstructionEBREAK {
+		if (target != RuntimeUnicorn) && instr.Name == InstructionEBREAK {
 			continue
 		}
-		stringified := fmt.Sprintf("\t%s %s", instr.Name, strings.Join(instr.Operands, ", "))
-		instructions = append(instructions, stringified)
+
+		// TODO: this should have a nicer abstraction ...
+		if target == RuntimeTargetOpenVM && instr.Name == "call" {
+			functionName := instr.Operands[0]
+			precompile, ok := openVMPrecompiles[functionName]
+			if ok {
+				functionName = precompile
+			}
+			stringified := fmt.Sprintf("\t%s %s", instr.Name, functionName)
+			instructions = append(instructions, stringified)
+		} else {
+			stringified := fmt.Sprintf("\t%s %s", instr.Name, strings.Join(instr.Operands, ", "))
+			instructions = append(instructions, stringified)
+		}
 	}
 
 	content := strings.Join(instructions, "\n")
@@ -91,9 +119,7 @@ func (a *AssemblyFile) toFile(skipEbreak bool) string {
 
 func (f *AssemblyFile) ToToolChainCompatibleAssembly() (string, error) {
 	dataSection := f.generateDataSection()
-	var format string
-	if dataSection != "" {
-		format = `
+	format := `
 .section .data
 %s
 
@@ -109,26 +135,11 @@ execute:
 	# Restore stack
 	mv sp, s2
 	mv ra, s1
-	ret	
-	`
-		return fmt.Sprintf(format, dataSection, f.toZkFile()), nil
-	} else {
-		format = `
-.global execute
-execute:
-	# Save stack
-	mv s2, sp
-	mv s1, ra
+	ret
 
 %s
-
-	# Restore stack
-	mv sp, s2
-	mv ra, s1
-	ret	
 	`
-		return fmt.Sprintf(format, f.toZkFile()), nil
-	}
+	return fmt.Sprintf(format, dataSection, f.toZkFile(), libFile), nil
 }
 
 // Used by the testing setup

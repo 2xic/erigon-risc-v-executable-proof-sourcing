@@ -1,4 +1,4 @@
-package main
+package transpiler
 
 import (
 	"encoding/binary"
@@ -36,6 +36,8 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		tr.instructions = append(tr.instructions, tr.slt256Call()...)
 	case vm.SHR:
 		tr.instructions = append(tr.instructions, tr.shr256Call()...)
+	case vm.SHL:
+		tr.instructions = append(tr.instructions, tr.shl256Call()...)
 	case vm.GT:
 		tr.instructions = append(tr.instructions, tr.gt256Call()...)
 	case vm.LT:
@@ -198,7 +200,6 @@ func (tr *transpiler) add256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
-		{Name: "addi", Operands: []string{"a2", "sp", "32"}},
 		{Name: "call", Operands: []string{"add256_stack_scratch"}},
 	}
 }
@@ -215,6 +216,14 @@ func (tr *transpiler) shr256Call() []prover.Instruction {
 		{Name: "addi", Operands: []string{"a0", "sp", "32"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "0"}},
 		{Name: "call", Operands: []string{"shr256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) shl256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "32"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "0"}},
+		{Name: "call", Operands: []string{"shl256_stack_scratch"}},
 	}
 }
 

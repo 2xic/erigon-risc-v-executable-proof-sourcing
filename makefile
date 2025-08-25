@@ -1,7 +1,16 @@
-.PHONY: lint lint-go lint-rust format-go
+.PHONY: lint lint-go lint-rust format-go build clean
 
 lint: lint-go lint-rust
 	echo "done"
+
+build: bins/prove
+
+bins/prove: cmd/prove/main.go
+	@mkdir -p bins
+	go build -o bins/prove ./cmd/prove
+
+clean:
+	rm -rf bins
 
 lint-go:
 	@which goimports > /dev/null || go install golang.org/x/tools/cmd/goimports@latest
@@ -14,7 +23,7 @@ lint-rust:
 	cd prover/openvm && cargo fmt
 
 test:
-	cd transpiler && go test -v ./...
+	cd transpiler && go test -timeout 300s -v ./...
 
 remove_go_cache:
 	rm -rf ~/.cache/go-build
