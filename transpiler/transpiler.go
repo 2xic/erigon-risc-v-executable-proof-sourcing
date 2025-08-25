@@ -1,4 +1,4 @@
-package main
+package transpiler
 
 import (
 	"encoding/binary"

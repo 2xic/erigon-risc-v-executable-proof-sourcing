@@ -1,4 +1,4 @@
-package main
+package transpiler
 
 import (
 	"erigon-transpiler-risc-v/prover"
@@ -15,13 +15,13 @@ type TestConfig struct {
 	CallData  []byte
 }
 
-type testRunner struct {
+type TestRunner struct {
 	program []byte
 	config  *TestConfig
 }
 
-func NewTestRunner(program []byte) *testRunner {
-	return &testRunner{
+func NewTestRunner(program []byte) *TestRunner {
+	return &TestRunner{
 		program: program,
 		config: &TestConfig{
 			CallValue: uint256.NewInt(0),
@@ -29,12 +29,12 @@ func NewTestRunner(program []byte) *testRunner {
 	}
 }
 
-func NewTestRunnerWithConfig(program []byte, config TestConfig) *testRunner {
+func NewTestRunnerWithConfig(program []byte, config TestConfig) *TestRunner {
 	if config.CallValue == nil {
 		config.CallValue = uint256.NewInt(0)
 	}
 
-	return &testRunner{
+	return &TestRunner{
 		program: program,
 		config:  &config,
 	}
@@ -44,7 +44,7 @@ type EvmStackSnapshot struct {
 	Snapshots [][]uint256.Int
 }
 
-func (t *testRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) {
+func (t *TestRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) {
 	contractAddr := libcommon.HexToAddress(CONTRACT_ADDRESS)
 
 	runner := tracer.NewSimpleTracer()
