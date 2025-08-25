@@ -1,8 +1,9 @@
 # Opcode Implementation Status
 We can currently execute the following opcodes with the following caveats
 - No external state support
+  - State is loaded and used by using the .data section of the program.
 - No precompile support
-- No 256-bit arithmetics support
+- ~~No 256-bit arithmetics support~~
 
 ## Opcodes
 List of all opcodes and whether we have implemented them.
@@ -31,7 +32,7 @@ List of all opcodes and whether we have implemented them.
 | [`0x16`](#and)            | AND            | Bitwise AND operation                                                                                                                                        |             |
 | [`0x17`](#or)             | OR             | Bitwise OR operation                                                                                                                                         |             |
 | [`0x18`](#xor)            | XOR            | Bitwise XOR operation                                                                                                                                        |             |
-| [`0x19`](#not)            | NOT            | Bitwise NOT operation                                                                                                                                        |             |
+| [`0x19`](#not)            | NOT            | Bitwise NOT operation                                                                                                                                        | x           |
 | [`0x1a`](#byte)           | BYTE           | Retrieve single byte from word                                                                                                                               |             |
 | [`0x1b`](#shl)            | SHL            | Shift Left                                                                                                                                                   | x           |
 | [`0x1c`](#shr)            | SHR            | Logical Shift Right                                                                                                                                          | x           |
@@ -42,12 +43,12 @@ List of all opcodes and whether we have implemented them.
 | [`0x31`](#balance)        | BALANCE        | Get balance of the given account                                                                                                                             |             |
 | [`0x32`](#origin)         | ORIGIN         | Get execution origination address                                                                                                                            |             |
 | [`0x33`](#caller)         | CALLER         | Get caller address                                                                                                                                           |             |
-| [`0x34`](#callvalue)      | CALLVALUE      | Get deposited value by the instruction/transaction responsible for this execution                                                                            |             |
-| [`0x35`](#calldataload)   | CALLDATALOAD   | Get input data of current environment                                                                                                                        |             |
-| [`0x36`](#calldatasize)   | CALLDATASIZE   | Get size of input data in current environment                                                                                                                |             |
+| [`0x34`](#callvalue)      | CALLVALUE      | Get deposited value by the instruction/transaction responsible for this execution                                                                            | x           |
+| [`0x35`](#calldataload)   | CALLDATALOAD   | Get input data of current environment                                                                                                                        | x           |
+| [`0x36`](#calldatasize)   | CALLDATASIZE   | Get size of input data in current environment                                                                                                                | x           |
 | [`0x37`](#calldatacopy)   | CALLDATACOPY   | Copy input data in current environment to memory                                                                                                             |             |
 | [`0x38`](#codesize)       | CODESIZE       | Get size of code running in current environment                                                                                                              |             |
-| [`0x39`](#codecopy)       | CODECOPY       | Copy code running in current environment to memory                                                                                                           |             |
+| [`0x39`](#codecopy)       | CODECOPY       | Copy code running in current environment to memory                                                                                                           | x           |
 | [`0x3a`](#gasprice)       | GASPRICE       | Get price of gas in current environment                                                                                                                      |             |
 | [`0x3b`](#extcodesize)    | EXTCODESIZE    | Get size of an account's code                                                                                                                                |             |
 | [`0x3c`](#extcodecopy)    | EXTCODECOPY    | Copy an account's code to memory                                                                                                                             |             |
@@ -70,8 +71,8 @@ List of all opcodes and whether we have implemented them.
 | [`0x51`](#mload)          | MLOAD          | Load word from memory                                                                                                                                        | x           |
 | [`0x52`](#mstore)         | MSTORE         | Save word to memory                                                                                                                                          | x           |
 | [`0x53`](#mstore8)        | MSTORE8        | Save byte to memory                                                                                                                                          |             |
-| [`0x54`](#sload)          | SLOAD          | Load word from storage                                                                                                                                       |             |
-| [`0x55`](#sstore)         | SSTORE         | Save word to storage                                                                                                                                         |             |
+| [`0x54`](#sload)          | SLOAD          | Load word from storage                                                                                                                                       | x           |
+| [`0x55`](#sstore)         | SSTORE         | Save word to storage                                                                                                                                         | x           |
 | [`0x56`](#jump)           | JUMP           | Alter the program counter                                                                                                                                    |             |
 | [`0x57`](#jumpi)          | JUMPI          | Conditionally alter the program counter                                                                                                                      | x           |
 | [`0x58`](#pc)             | PC             | Get the value of the program counter prior to the increment                                                                                                  |             |
@@ -169,12 +170,12 @@ List of all opcodes and whether we have implemented them.
 | [`0xf0`](#create)         | CREATE         | Create a new account with associated code                                                                                                                    |             |
 | [`0xf1`](#call)           | CALL           | Message-call into an account                                                                                                                                 |             |
 | [`0xf2`](#callcode)       | CALLCODE       | Message-call into this account with alternative account's code                                                                                               |             |
-| [`0xf3`](#return)         | RETURN         | Halt execution returning output data                                                                                                                         |             |
+| [`0xf3`](#return)         | RETURN         | Halt execution returning output data                                                                                                                         | x           |
 | [`0xf4`](#delegatecall)   | DELEGATECALL   | Message-call into this account with an alternative account's code, but persisting into this account with an alternative account's code                       |             |
 | [`0xf5`](#create2)        | CREATE2        | Create a new account and set creation address to `sha3(sender + sha3(init code)) % 2**160`                                                                   |             |
 | `0xf6` - `0xf9`           | Unused         | -                                                                                                                                                            |             |
 | [`0xfa`](#staticcall)     | STATICCALL     | Similar to CALL, but does not modify state                                                                                                                   |             |
 | `0xfb`                    | Unused         | -                                                                                                                                                            |             |
-| [`0xfd`](#revert)         | REVERT         | Stop execution and revert state changes, without consuming all provided gas and providing a reason                                                           |             |
-| `0xfe`                    | INVALID        | Designated invalid instruction                                                                                                                               |             |
+| [`0xfd`](#revert)         | REVERT         | Stop execution and revert state changes, without consuming all provided gas and providing a reason                                                           | x           |
+| `0xfe`                    | INVALID        | Designated invalid instruction                                                                                                                               | x           |
 | [`0xff`](#selfdestruct)   | SELFDESTRUCT   | Sends all ETH to the target. If executed in the same transaction a contract was created, register the account for later deletion                             |             |
