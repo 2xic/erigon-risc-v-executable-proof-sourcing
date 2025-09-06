@@ -23,7 +23,10 @@ lint-rust:
 	cd prover/openvm && cargo fmt
 
 test:
-	cd transpiler && go test -timeout 300s -v ./...
+	cd transpiler && go test -parallel=1 -timeout 300s -v ./...
+
+single_test:
+		cd transpiler && go test -timeout 30s -run ^TestPushOpcodes$ erigon-transpiler-risc-v/transpiler
 
 remove_go_cache:
 	rm -rf ~/.cache/go-build

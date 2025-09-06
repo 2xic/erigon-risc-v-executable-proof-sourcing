@@ -48,9 +48,34 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(0))...)
 	case vm.PUSH1:
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(op.Arguments[0]))...)
+	case vm.PUSH2:
+		value := binary.BigEndian.Uint16(op.Arguments)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
+	case vm.PUSH3:
+		value := uint64(op.Arguments[0])<<16 | uint64(op.Arguments[1])<<8 | uint64(op.Arguments[2])
+		tr.instructions = append(tr.instructions, tr.pushOpcode(value)...)
 	case vm.PUSH4:
 		value := binary.BigEndian.Uint32(op.Arguments)
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
+	case vm.PUSH5, vm.PUSH6, vm.PUSH7:
+		// For PUSH5-PUSH7, we need to handle them like larger values since they don't fit in standard types
+		value := new(uint256.Int)
+		value.SetBytes(op.Arguments)
+		varName := tr.dataSection.Add(value)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.PUSH8:
+		// For PUSH8, use the same approach as larger PUSH opcodes
+		value := new(uint256.Int)
+		value.SetBytes(op.Arguments)
+		varName := tr.dataSection.Add(value)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.PUSH9, vm.PUSH10, vm.PUSH11, vm.PUSH12, vm.PUSH13, vm.PUSH14, vm.PUSH15, vm.PUSH16,
+		vm.PUSH17, vm.PUSH18, vm.PUSH19, vm.PUSH20, vm.PUSH21, vm.PUSH22, vm.PUSH23, vm.PUSH24,
+		vm.PUSH25, vm.PUSH26, vm.PUSH27, vm.PUSH28, vm.PUSH29, vm.PUSH30, vm.PUSH31, vm.PUSH32:
+		value := new(uint256.Int)
+		value.SetBytes(op.Arguments)
+		varName := tr.dataSection.Add(value)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.JUMPI:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -60,10 +85,64 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		tr.instructions = append(tr.instructions, tr.DupOpcode(2)...)
 	case vm.DUP3:
 		tr.instructions = append(tr.instructions, tr.DupOpcode(3)...)
+	case vm.DUP4:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(4)...)
+	case vm.DUP5:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(5)...)
+	case vm.DUP6:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(6)...)
+	case vm.DUP7:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(7)...)
+	case vm.DUP8:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(8)...)
+	case vm.DUP9:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(9)...)
+	case vm.DUP10:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(10)...)
+	case vm.DUP11:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(11)...)
+	case vm.DUP12:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(12)...)
+	case vm.DUP13:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(13)...)
+	case vm.DUP14:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(14)...)
+	case vm.DUP15:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(15)...)
+	case vm.DUP16:
+		tr.instructions = append(tr.instructions, tr.DupOpcode(16)...)
 	case vm.SWAP1:
 		tr.instructions = append(tr.instructions, tr.SwapOpcode(1)...)
 	case vm.SWAP2:
 		tr.instructions = append(tr.instructions, tr.SwapOpcode(2)...)
+	case vm.SWAP3:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(3)...)
+	case vm.SWAP4:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(4)...)
+	case vm.SWAP5:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(5)...)
+	case vm.SWAP6:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(6)...)
+	case vm.SWAP7:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(7)...)
+	case vm.SWAP8:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(8)...)
+	case vm.SWAP9:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(9)...)
+	case vm.SWAP10:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(10)...)
+	case vm.SWAP11:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(11)...)
+	case vm.SWAP12:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(12)...)
+	case vm.SWAP13:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(13)...)
+	case vm.SWAP14:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(14)...)
+	case vm.SWAP15:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(15)...)
+	case vm.SWAP16:
+		tr.instructions = append(tr.instructions, tr.SwapOpcode(16)...)
 	case vm.POP:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MSTORE:

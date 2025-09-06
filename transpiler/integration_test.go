@@ -448,3 +448,120 @@ func TestHaltingOpcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestPushOpcodes(t *testing.T) {
+	pushOpcodes := []vm.OpCode{
+		vm.PUSH0, vm.PUSH1, vm.PUSH2, vm.PUSH3, vm.PUSH4, vm.PUSH5, vm.PUSH6, vm.PUSH7, vm.PUSH8,
+		vm.PUSH9, vm.PUSH10, vm.PUSH11, vm.PUSH12, vm.PUSH13, vm.PUSH14, vm.PUSH15, vm.PUSH16,
+		vm.PUSH17, vm.PUSH18, vm.PUSH19, vm.PUSH20, vm.PUSH21, vm.PUSH22, vm.PUSH23, vm.PUSH24,
+		vm.PUSH25, vm.PUSH26, vm.PUSH27, vm.PUSH28, vm.PUSH29, vm.PUSH30, vm.PUSH31, vm.PUSH32,
+	}
+
+	for i, opcode := range pushOpcodes {
+		t.Run(fmt.Sprintf("PUSH%d", i), func(t *testing.T) {
+			var bytecode []byte
+			if opcode == vm.PUSH0 {
+				bytecode = []byte{byte(opcode)}
+			} else {
+				data := make([]byte, i)
+				for j := 0; j < i; j++ {
+					data[j] = byte(j + 1)
+				}
+				bytecode = append([]byte{byte(opcode)}, data...)
+			}
+
+			assembly, evmSnapshot, err := NewTestRunner(bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for PUSH%d", i)
+
+			bytecode, err = assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for PUSH%d", i)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for PUSH%d", i)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for PUSH%d", i)
+
+			for j := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[j], snapShot[j], fmt.Sprintf("Failed on PUSH%d (instruction %d)", i, j))
+			}
+		})
+	}
+}
+func TestSwapOpcodes(t *testing.T) {
+	swapOpcodes := []vm.OpCode{
+		vm.SWAP1, vm.SWAP2, vm.SWAP3, vm.SWAP4, vm.SWAP5, vm.SWAP6, vm.SWAP7, vm.SWAP8,
+		vm.SWAP9, vm.SWAP10, vm.SWAP11, vm.SWAP12, vm.SWAP13, vm.SWAP14, vm.SWAP15, vm.SWAP16,
+	}
+
+	for i, opcode := range swapOpcodes {
+		swapIndex := i + 1
+		t.Run(fmt.Sprintf("SWAP%d", swapIndex), func(t *testing.T) {
+			var bytecode []byte
+
+			// Push enough values to test the swap (need swapIndex + 1 values on stack)
+			for j := 0; j <= swapIndex; j++ {
+				bytecode = append(bytecode, byte(vm.PUSH1), byte(j+1))
+			}
+			bytecode = append(bytecode, byte(opcode))
+
+			assembly, evmSnapshot, err := NewTestRunner(bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for SWAP%d", swapIndex)
+
+			bytecode, err = assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for SWAP%d", swapIndex)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for SWAP%d", swapIndex)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for SWAP%d", swapIndex)
+
+			for j := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[j], snapShot[j], fmt.Sprintf("Failed on SWAP%d (instruction %d)", swapIndex, j))
+			}
+		})
+	}
+}
+
+func TestDupOpcodes(t *testing.T) {
+	dupOpcodes := []vm.OpCode{
+		vm.DUP1, vm.DUP2, vm.DUP3, vm.DUP4, vm.DUP5, vm.DUP6, vm.DUP7, vm.DUP8,
+		vm.DUP9, vm.DUP10, vm.DUP11, vm.DUP12, vm.DUP13, vm.DUP14, vm.DUP15, vm.DUP16,
+	}
+
+	for i, opcode := range dupOpcodes {
+		dupIndex := i + 1
+		t.Run(fmt.Sprintf("DUP%d", dupIndex), func(t *testing.T) {
+			var bytecode []byte
+
+			// Push enough values to test the dup (need dupIndex values on stack)
+			for j := 0; j < dupIndex; j++ {
+				bytecode = append(bytecode, byte(vm.PUSH1), byte(j+1))
+			}
+			bytecode = append(bytecode, byte(opcode))
+
+			assembly, evmSnapshot, err := NewTestRunner(bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for DUP%d", dupIndex)
+
+			bytecode, err = assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for DUP%d", dupIndex)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for DUP%d", dupIndex)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for DUP%d", dupIndex)
+
+			for j := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[j], snapShot[j], fmt.Sprintf("Failed on DUP%d (instruction %d)", dupIndex, j))
+			}
+		})
+	}
+}
