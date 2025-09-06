@@ -20,9 +20,14 @@ make build
 - `-o, --output` (optional): Output prefix (default: "test.proof")
 
 ## Example
-
+Getting the bytecode of the counter contract
 ```bash
-./bins/prove -b 608060...50033 -c 2e64cec1 -o counter_proof
+make counter_bytecode
+```
+
+Generating the proof.
+```bash
+./bins/prove -b 608060...5005a -c 2e64cec1 -o counter_proof
 ```
 
 Outputs `counter_proof.proof` and `counter_proof.vk` files, plus verification command.
