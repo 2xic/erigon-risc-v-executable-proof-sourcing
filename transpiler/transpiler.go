@@ -30,6 +30,18 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, tr.add256Call()...)
+	case vm.MUL:
+		tr.instructions = append(tr.instructions, tr.mul256Call()...)
+	case vm.SUB:
+		tr.instructions = append(tr.instructions, tr.sub256Call()...)
+	case vm.DIV:
+		tr.instructions = append(tr.instructions, tr.div256Call()...)
+	case vm.AND:
+		tr.instructions = append(tr.instructions, tr.and256Call()...)
+	case vm.OR:
+		tr.instructions = append(tr.instructions, tr.or256Call()...)
+	case vm.XOR:
+		tr.instructions = append(tr.instructions, tr.xor256Call()...)
 	case vm.EQ:
 		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.SLT:
@@ -280,6 +292,54 @@ func (tr *transpiler) add256Call() []prover.Instruction {
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
 		{Name: "call", Operands: []string{"add256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) mul256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"mul256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) sub256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"sub256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) div256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"div256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) and256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"and256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) or256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"or256_stack_scratch"}},
+	}
+}
+
+func (tr *transpiler) xor256Call() []prover.Instruction {
+	return []prover.Instruction{
+		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
+		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
+		{Name: "call", Operands: []string{"xor256_stack_scratch"}},
 	}
 }
 

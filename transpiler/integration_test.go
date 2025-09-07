@@ -565,3 +565,105 @@ func TestDupOpcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestArithmeticOpcodes(t *testing.T) {
+	tests := []struct {
+		name     string
+		bytecode []byte
+	}{
+		{
+			name:     "MUL",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x4, byte(vm.MUL)},
+		},
+		{
+			name:     "SUB",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x5, byte(vm.SUB)},
+		},
+		{
+			name:     "DIV",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0xF, byte(vm.DIV)},
+		},
+		{
+			name:     "AND",
+			bytecode: []byte{byte(vm.PUSH1), 0xF, byte(vm.PUSH1), 0x3, byte(vm.AND)},
+		},
+		{
+			name:     "MUL_large",
+			bytecode: []byte{byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF, byte(vm.PUSH1), 0x2, byte(vm.MUL)},
+		},
+		{
+			name:     "SUB_underflow",
+			bytecode: []byte{byte(vm.PUSH1), 0x5, byte(vm.PUSH1), 0x3, byte(vm.SUB)},
+		},
+		{
+			name:     "DIV_by_zero",
+			bytecode: []byte{byte(vm.PUSH1), 0x0, byte(vm.PUSH1), 0x5, byte(vm.DIV)},
+		},
+		{
+			name:     "AND_zero",
+			bytecode: []byte{byte(vm.PUSH1), 0x0, byte(vm.PUSH1), 0xFF, byte(vm.AND)},
+		},
+		{
+			name:     "DIV_large",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFE, byte(vm.DIV)},
+		},
+		{
+			name:     "DIV_large_result",
+			bytecode: []byte{byte(vm.PUSH2), 0x00, 0x64, byte(vm.PUSH4), 0x00, 0x98, 0x96, 0x80, byte(vm.DIV)},
+		},
+		{
+			name:     "MUL_overflow",
+			bytecode: []byte{byte(vm.PUSH4), 0x80, 0x00, 0x00, 0x00, byte(vm.PUSH1), 0x2, byte(vm.MUL)},
+		},
+		{
+			name:     "SUB_large",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFF, byte(vm.SUB)},
+		},
+		{
+			name:     "ADD_large",
+			bytecode: []byte{byte(vm.PUSH1), 0x1, byte(vm.PUSH4), 0xFF, 0xFF, 0xFF, 0xFE, byte(vm.ADD)},
+		},
+		{
+			name:     "MUL_small_large",
+			bytecode: []byte{byte(vm.PUSH4), 0x12, 0x34, 0x56, 0x78, byte(vm.PUSH1), 0x3, byte(vm.MUL)},
+		},
+		{
+			name:     "DIV_precision",
+			bytecode: []byte{byte(vm.PUSH1), 0x7, byte(vm.PUSH1), 0x16, byte(vm.DIV)},
+		},
+		{
+			name:     "AND_large",
+			bytecode: []byte{byte(vm.PUSH4), 0xAA, 0xAA, 0xAA, 0xAA, byte(vm.PUSH4), 0x55, 0x55, 0x55, 0x55, byte(vm.AND)},
+		},
+		{
+			name:     "OR_large",
+			bytecode: []byte{byte(vm.PUSH4), 0xAA, 0xAA, 0xAA, 0xAA, byte(vm.PUSH4), 0x55, 0x55, 0x55, 0x55, byte(vm.OR)},
+		},
+		{
+			name:     "XOR_large",
+			bytecode: []byte{byte(vm.PUSH4), 0xAA, 0xAA, 0xAA, 0xAA, byte(vm.PUSH4), 0x55, 0x55, 0x55, 0x55, byte(vm.XOR)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assembly, evmSnapshot, err := NewTestRunner(tc.bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for %s", tc.name)
+
+			bytecode, err := assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for %s", tc.name)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for %s", tc.name)
+
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for %s", tc.name)
+
+			for i := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instruction %d)", tc.name, i))
+			}
+		})
+	}
+}
