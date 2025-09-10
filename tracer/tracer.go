@@ -17,6 +17,8 @@ type EvmExecutionState struct {
 	CallValue *uint256.Int
 	CallData  []byte
 	CodeData  []byte
+	Gas       *uint256.Int
+	Address   libcommon.Address
 }
 
 type EvmInstructionMetadata struct {
@@ -80,6 +82,8 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 		CallValue: scope.Contract.Value(),
 		CallData:  scope.Contract.Input,
 		CodeData:  scope.Contract.Code,
+		Gas:       uint256.NewInt(gas),
+		Address:   scope.Contract.Address(),
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{

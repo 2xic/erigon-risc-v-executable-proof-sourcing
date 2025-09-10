@@ -88,6 +88,8 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		value.SetBytes(op.Arguments)
 		varName := tr.dataSection.Add(value)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.JUMP:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.JUMPI:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -171,6 +173,14 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.CALLVALUE:
 		varName := tr.dataSection.Add(state.CallValue)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.GAS:
+		varName := tr.dataSection.Add(state.Gas)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.ADDRESS:
+		addressUint256 := new(uint256.Int)
+		addressUint256.SetBytes(state.Address.Bytes())
+		varName := tr.dataSection.Add(addressUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.CALLDATASIZE:
 		size := uint256.NewInt(uint64(len(state.CallData)))

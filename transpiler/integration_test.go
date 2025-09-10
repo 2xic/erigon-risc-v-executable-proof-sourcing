@@ -142,6 +142,23 @@ func TestSimpleOpcodes(t *testing.T) {
 			},
 		},
 		{
+			name: "JUMP",
+			bytecode: []byte{
+				byte(vm.PUSH1), 3,
+				byte(vm.JUMP),
+				byte(vm.JUMPDEST),
+				byte(vm.PUSH1), 1,
+			},
+		},
+		{
+			name:     "GAS",
+			bytecode: []byte{byte(vm.GAS)},
+		},
+		{
+			name:     "ADDRESS",
+			bytecode: []byte{byte(vm.ADDRESS)},
+		},
+		{
 			name:     "DUP1",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.DUP1), byte(vm.ADD)},
 		},
