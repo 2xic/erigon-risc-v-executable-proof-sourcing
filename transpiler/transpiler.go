@@ -5,6 +5,8 @@ import (
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
 
+	libcommon "github.com/erigontech/erigon-lib/common"
+
 	"fmt"
 	"strconv"
 
@@ -181,6 +183,27 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		addressUint256 := new(uint256.Int)
 		addressUint256.SetBytes(state.Address.Bytes())
 		varName := tr.dataSection.Add(addressUint256)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.TIMESTAMP:
+		varName := tr.dataSection.Add(state.Timestamp)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.CHAINID:
+		varName := tr.dataSection.Add(state.ChainId)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.EXTCODESIZE:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		// Get the address from the stack snapshot and look up its code size
+		addressToCheck := op.StackSnapshot[0]
+		var addr libcommon.Address
+		addressToCheck.WriteToSlice(addr[:])
+
+		codeSize := uint64(0)
+		if size, exists := state.CodeSizes[addr]; exists {
+			codeSize = size
+		}
+
+		codeSizeUint256 := uint256.NewInt(codeSize)
+		varName := tr.dataSection.Add(codeSizeUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.CALLDATASIZE:
 		size := uint256.NewInt(uint64(len(state.CallData)))

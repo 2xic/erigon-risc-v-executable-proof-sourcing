@@ -14,11 +14,14 @@ import (
 )
 
 type EvmExecutionState struct {
-	CallValue *uint256.Int
-	CallData  []byte
-	CodeData  []byte
-	Gas       *uint256.Int
-	Address   libcommon.Address
+	CallValue    *uint256.Int
+	CallData     []byte
+	CodeData     []byte
+	Gas          *uint256.Int
+	Address      libcommon.Address
+	Timestamp    *uint256.Int
+	ChainId      *uint256.Int
+	CodeSizes    map[libcommon.Address]uint64
 }
 
 type EvmInstructionMetadata struct {
@@ -35,6 +38,8 @@ type StateTracer struct {
 	jumpTable       *vm.JumpTable
 	evmInstructions []*EvmInstructionMetadata
 	executionState  *EvmExecutionState
+	blockTime       uint64
+	chainId         *uint256.Int
 }
 
 func NewStateTracer() *StateTracer {
@@ -47,9 +52,13 @@ func (t *StateTracer) setJumpTable(jt *vm.JumpTable) {
 	t.jumpTable = jt
 }
 
+
 func (t *StateTracer) CaptureTxStart(gasLimit uint64) {}
 func (t *StateTracer) CaptureTxEnd(restGas uint64)    {}
 func (t *StateTracer) CaptureStart(env *vm.EVM, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+	t.blockTime = env.Context.Time
+	t.chainId = new(uint256.Int)
+	t.chainId.SetFromBig(env.ChainConfig().ChainID)
 }
 func (t *StateTracer) CaptureEnd(output []byte, usedGas uint64, err error) {}
 func (t *StateTracer) CaptureEnter(typ vm.OpCode, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
@@ -78,12 +87,18 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 	}
 
 	// TODO: this should likely not be re-computed
+	codeSizes := make(map[libcommon.Address]uint64)
+	codeSizes[scope.Contract.Address()] = uint64(len(scope.Contract.Code))
+	
 	t.executionState = &EvmExecutionState{
-		CallValue: scope.Contract.Value(),
-		CallData:  scope.Contract.Input,
-		CodeData:  scope.Contract.Code,
-		Gas:       uint256.NewInt(gas),
-		Address:   scope.Contract.Address(),
+		CallValue:    scope.Contract.Value(),
+		CallData:     scope.Contract.Input,
+		CodeData:     scope.Contract.Code,
+		Gas:          uint256.NewInt(gas),
+		Address:      scope.Contract.Address(),
+		Timestamp:    uint256.NewInt(t.blockTime),
+		ChainId:      t.chainId,
+		CodeSizes:    codeSizes,
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{

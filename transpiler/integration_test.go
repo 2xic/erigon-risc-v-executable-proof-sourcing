@@ -159,6 +159,18 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.ADDRESS)},
 		},
 		{
+			name:     "TIMESTAMP",
+			bytecode: []byte{byte(vm.TIMESTAMP)},
+		},
+		{
+			name:     "CHAINID",
+			bytecode: []byte{byte(vm.CHAINID)},
+		},
+		{
+			name:     "EXTCODESIZE",
+			bytecode: []byte{byte(vm.ADDRESS), byte(vm.EXTCODESIZE)},
+		},
+		{
 			name:     "DUP1",
 			bytecode: []byte{byte(vm.PUSH0), byte(vm.DUP1), byte(vm.ADD)},
 		},
