@@ -3,11 +3,23 @@
 lint: lint-go lint-rust
 	echo "done"
 
-build: bins/prove
+build: bins/prove bins/test-state bins/replay-tx bins/trace-block
 
 bins/prove: cmd/prove/main.go
 	@mkdir -p bins
 	go build -o bins/prove ./cmd/prove
+
+bins/test-state: cmd/test-state/main.go
+	@mkdir -p bins
+	go build -o bins/test-state ./cmd/test-state
+
+bins/replay-tx: cmd/replay-tx/main.go
+	@mkdir -p bins
+	go build -o bins/replay-tx ./cmd/replay-tx
+
+bins/trace-block: cmd/trace-block/main.go
+	@mkdir -p bins
+	go build -o bins/trace-block ./cmd/trace-block
 
 clean:
 	rm -rf bins

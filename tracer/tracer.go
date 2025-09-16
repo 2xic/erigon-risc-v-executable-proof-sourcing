@@ -1,12 +1,14 @@
 package tracer
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/core/tracing"
+	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"github.com/erigontech/erigon/params"
@@ -14,14 +16,14 @@ import (
 )
 
 type EvmExecutionState struct {
-	CallValue    *uint256.Int
-	CallData     []byte
-	CodeData     []byte
-	Gas          *uint256.Int
-	Address      libcommon.Address
-	Timestamp    *uint256.Int
-	ChainId      *uint256.Int
-	CodeSizes    map[libcommon.Address]uint64
+	CallValue *uint256.Int
+	CallData  []byte
+	CodeData  []byte
+	Gas       *uint256.Int
+	Address   libcommon.Address
+	Timestamp *uint256.Int
+	ChainId   *uint256.Int
+	CodeSizes map[libcommon.Address]uint64
 }
 
 type EvmInstructionMetadata struct {
@@ -42,32 +44,69 @@ type StateTracer struct {
 	chainId         *uint256.Int
 }
 
+func (t *StateTracer) Hooks() *tracing.Hooks {
+	return &tracing.Hooks{
+		OnTxStart: func(vm *tracing.VMContext, txn types.Transaction, from libcommon.Address) {
+			fmt.Println("hello!!")
+		},
+		OnOpcode: func(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+			fmt.Printf("🔥 OnOpcode hook: pc=%d op=%s gas=%d\n", pc, vm.OpCode(op).String(), gas)
+		},
+	}
+
+}
+
+func (t *StateTracer) TracingHooks() *tracing.Hooks {
+	return t.Hooks()
+
+}
+
 func NewStateTracer() *StateTracer {
-	return &StateTracer{
+	tracer := &StateTracer{
 		jumpTable: nil,
 	}
+	// Set Hooks to point to itself since StateTracer implements vm.EVMLogger
+	// tracer.Hooks = tracer
+	return tracer
 }
 
 func (t *StateTracer) setJumpTable(jt *vm.JumpTable) {
 	t.jumpTable = jt
 }
 
-
-func (t *StateTracer) CaptureTxStart(gasLimit uint64) {}
-func (t *StateTracer) CaptureTxEnd(restGas uint64)    {}
+func (t *StateTracer) CaptureTxStart(gasLimit uint64) {
+	fmt.Println("CaptureTxStart")
+}
+func (t *StateTracer) CaptureTxEnd(restGas uint64) {
+	fmt.Println("CaptureTxEnd")
+}
 func (t *StateTracer) CaptureStart(env *vm.EVM, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+	fmt.Println("CaptureStart")
 	t.blockTime = env.Context.Time
 	t.chainId = new(uint256.Int)
-	t.chainId.SetFromBig(env.ChainConfig().ChainID)
+
+	// Safely access chain config
+	if env.ChainConfig() != nil && env.ChainConfig().ChainID != nil {
+		t.chainId.SetFromBig(env.ChainConfig().ChainID)
+	} else {
+		t.chainId.SetUint64(1) // Default to mainnet if unavailable
+	}
 }
-func (t *StateTracer) CaptureEnd(output []byte, usedGas uint64, err error) {}
+func (t *StateTracer) CaptureEnd(output []byte, usedGas uint64, err error) {
+	fmt.Println("CaptureEnd")
+}
 func (t *StateTracer) CaptureEnter(typ vm.OpCode, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+	fmt.Println("CaptureEnter")
 }
-func (t *StateTracer) CaptureExit(output []byte, usedGas uint64, err error) {}
+func (t *StateTracer) CaptureExit(output []byte, usedGas uint64, err error) {
+	fmt.Println("CaptureExit")
+}
 func (t *StateTracer) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, opDepth int, err error) {
+	fmt.Println("CaptureFault")
 }
 
 func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, opDepth int, err error) {
+	fmt.Printf("💫 CaptureState: pc=%d op=%s gas=%d stack_len=%d\n", pc, op.String(), gas, scope.Stack.Len())
 	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, op.String(), gas, scope.Stack.Len())
 
 	arguments := []byte{}
@@ -89,16 +128,16 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 	// TODO: this should likely not be re-computed
 	codeSizes := make(map[libcommon.Address]uint64)
 	codeSizes[scope.Contract.Address()] = uint64(len(scope.Contract.Code))
-	
+
 	t.executionState = &EvmExecutionState{
-		CallValue:    scope.Contract.Value(),
-		CallData:     scope.Contract.Input,
-		CodeData:     scope.Contract.Code,
-		Gas:          uint256.NewInt(gas),
-		Address:      scope.Contract.Address(),
-		Timestamp:    uint256.NewInt(t.blockTime),
-		ChainId:      t.chainId,
-		CodeSizes:    codeSizes,
+		CallValue: scope.Contract.Value(),
+		CallData:  scope.Contract.Input,
+		CodeData:  scope.Contract.Code,
+		Gas:       uint256.NewInt(gas),
+		Address:   scope.Contract.Address(),
+		Timestamp: uint256.NewInt(t.blockTime),
+		ChainId:   t.chainId,
+		CodeSizes: codeSizes,
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
@@ -106,6 +145,11 @@ func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sc
 		Arguments:     arguments,
 		StackSnapshot: snapshot,
 	})
+}
+
+// GetInstructions returns all captured instructions
+func (t *StateTracer) GetInstructions() []*EvmInstructionMetadata {
+	return t.evmInstructions
 }
 
 // =============================================================================
