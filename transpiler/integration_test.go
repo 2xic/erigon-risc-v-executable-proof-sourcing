@@ -696,3 +696,94 @@ func TestArithmeticOpcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestLogOpcodes(t *testing.T) {
+	tests := []struct {
+		name     string
+		bytecode []byte
+	}{
+		{
+			name: "LOG1",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.LOG1),
+			},
+		},
+		{
+			name: "LOG2",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x43,
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.LOG2),
+			},
+		},
+		{
+			name: "LOG3",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x44,
+				byte(vm.PUSH1), 0x43,
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.LOG3),
+			},
+		},
+		{
+			name: "LOG1_with_zero_size",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.LOG1),
+			},
+		},
+		{
+			name: "LOG2_with_different_topics",
+			bytecode: []byte{
+				byte(vm.PUSH2), 0xFF, 0xFF,
+				byte(vm.PUSH1), 0x01,
+				byte(vm.PUSH1), 0x10,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.LOG2),
+			},
+		},
+		{
+			name: "LOG3_complex",
+			bytecode: []byte{
+				byte(vm.PUSH4), 0xDE, 0xAD, 0xBE, 0xEF,
+				byte(vm.PUSH4), 0xCA, 0xFE, 0xBA, 0xBE,
+				byte(vm.PUSH4), 0xFE, 0xED, 0xFA, 0xCE,
+				byte(vm.PUSH1), 0x40,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.LOG3),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assembly, evmSnapshot, err := NewTestRunner(tc.bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for %s", tc.name)
+
+			bytecode, err := assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for %s", tc.name)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for %s", tc.name)
+
+			// Verify that the stack is as expected at each step of the execution
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for %s", tc.name)
+
+			for i := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instruction %d)", tc.name, i))
+			}
+		})
+	}
+}

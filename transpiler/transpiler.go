@@ -205,6 +205,24 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		codeSizeUint256 := uint256.NewInt(codeSize)
 		varName := tr.dataSection.Add(codeSizeUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.LOG1:
+		// LOG1 pops 3 items: offset, size, topic1
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.LOG2:
+		// LOG2 pops 4 items: offset, size, topic1, topic2
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.LOG3:
+		// LOG3 pops 5 items: offset, size, topic1, topic2, topic3
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CALLDATASIZE:
 		size := uint256.NewInt(uint64(len(state.CallData)))
 		varName := tr.dataSection.Add(size)
