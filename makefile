@@ -23,7 +23,10 @@ lint-rust:
 	cd prover/openvm && cargo fmt
 
 test:
-	cd transpiler && go test -timeout 300s -v ./...
+	cd transpiler && go test -parallel=1 -timeout 300s -v ./...
+
+single_test:
+		cd transpiler && go test -timeout 30s -run ^TestPushOpcodes$ erigon-transpiler-risc-v/transpiler
 
 remove_go_cache:
 	rm -rf ~/.cache/go-build
@@ -32,3 +35,7 @@ remove_go_cache:
 emit-asm-prover:
 #	cd prover/openvm && RUSTFLAGS="--emit=asm,obj" cargo openvm build --no-transpile
 	cd prover/openvm/bigint && RUSTFLAGS="--emit=asm -C debuginfo=0" cargo +nightly-2025-02-14 build --target riscv32im-unknown-none-elf  -Zbuild-std=core,alloc
+
+counter_bytecode:
+	solc --bin-runtime --via-ir --optimize contracts/Counter.sol
+

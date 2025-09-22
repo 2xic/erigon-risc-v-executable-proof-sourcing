@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-openvm-ruint = { git = "https://github.com/openvm-org/openvm.git", package = "ruint", tag = "v1.3.0" , default-features = false }
-# openvm-bigint-guest = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.3.0" }
+openvm-ruint = { git = "https://github.com/openvm-org/openvm.git", package = "ruint", tag = "v1.4.0" , default-features = false }
+# openvm-bigint-guest = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.4.0" }
