@@ -354,6 +354,7 @@ func TestCallDataSize(t *testing.T) {
 
 	snapShot := *snapshot.StackSnapshots
 	assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+	assert.Equal(t, len(evmSnapshot.Snapshots) > 0, true)
 
 	for i := range evmSnapshot.Snapshots {
 		assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CALLDATASIZE (instruction %d)", i))

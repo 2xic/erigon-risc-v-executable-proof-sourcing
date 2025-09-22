@@ -1,4 +1,4 @@
 [submodule "transpiler/erigon"]
 	path = erigon
 	url = https://github.com/2xic-speedrun/erigon
-	commit = db2452f7580d49a787cd640ca499ac85562c6cc7
+	commit = 8ff1e785f51401eeeeda77c8decd2849f4ea3355
