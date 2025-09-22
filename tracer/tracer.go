@@ -174,12 +174,21 @@ func NewSimpleTracer() *SimpleTracer {
 		Difficulty:  big.NewInt(1),
 	}
 
+	// Create a custom chain config with ChainID 1337 for testing
+	chainConfig := *chain.AllProtocolChanges
+	chainConfig.ChainID = big.NewInt(1337)
+
 	txCtx := evmtypes.TxContext{
 		Origin:   libcommon.HexToAddress("0xabcd"),
 		GasPrice: uint256.NewInt(1),
 	}
 
 	tracer := NewStateTracer()
+	// Initialize the values that would normally be set in CaptureTxStart
+	tracer.blockTime = blockCtx.Time
+	tracer.chainId = new(uint256.Int)
+	tracer.chainId.SetFromBig(chainConfig.ChainID)
+
 	hooks := &tracing.Hooks{
 		OnOpcode:  tracer.CaptureState,
 		OnTxStart: tracer.CaptureTxStart,
@@ -192,8 +201,8 @@ func NewSimpleTracer() *SimpleTracer {
 		Tracer: hooks,
 	}
 
-	evm := vm.NewEVM(blockCtx, txCtx, statedb, chain.AllProtocolChanges, vmConfig)
-	in := vm.NewEVMInterpreter(evm, evm.Config())
+	evm := vm.NewEVM(blockCtx, txCtx, statedb, &chainConfig, vmConfig)
+	in := vm.NewEVMInterpreter(evm, vmConfig)
 	tracer.setJumpTable(in.JT())
 
 	return &SimpleTracer{
@@ -204,9 +213,13 @@ func NewSimpleTracer() *SimpleTracer {
 }
 
 func (tr *SimpleTracer) DeployContract(addr libcommon.Address, bytecode []byte, balance *uint256.Int) error {
-	return tr.state.SetupContract(addr, bytecode, balance)
+	tr.evm.IntraBlockState().CreateAccount(addr, true)
+	tr.evm.IntraBlockState().SetCode(addr, bytecode)
+	if balance != nil && balance.Sign() > 0 {
+		tr.evm.IntraBlockState().SetBalance(addr, *balance, tracing.BalanceChangeUnspecified)
+	}
+	return nil
 }
-
 func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []byte, gasLimit uint64, callValue *uint256.Int) ([]*EvmInstructionMetadata, *EvmExecutionState, uint64, error) {
 	if callValue == nil {
 		callValue = uint256.NewInt(0)
@@ -214,18 +227,12 @@ func (tr *SimpleTracer) ExecuteContract(contractAddr libcommon.Address, input []
 	callerAddr := libcommon.HexToAddress("0xabcd")
 	caller := vm.AccountRef(callerAddr)
 
-	if callValue.Cmp(uint256.NewInt(0)) > 0 {
-		currentBalance, err := tr.state.GetBalance(callerAddr)
-		if err != nil {
-			return nil, nil, 0, err
-		}
-		if currentBalance.Cmp(callValue) < 0 {
-			neededBalance := new(uint256.Int).Add(callValue, uint256.NewInt(1000000))
-			tr.state.AddBalance(callerAddr, neededBalance, tracing.BalanceChangeUnspecified)
-		}
-	}
+	neededBalance := new(uint256.Int).Add(callValue, uint256.NewInt(1000000))
+	tr.evm.IntraBlockState().SetBalance(callerAddr, *neededBalance, tracing.BalanceChangeUnspecified)
 
+	tr.evm.IntraBlockState().SetHooks(tr.evm.Config().Tracer)
 	_, gasLeft, err := tr.evm.Call(caller, contractAddr, input, gasLimit, callValue, false)
+
 	// We don't want these errors to propagate
 	if err == vm.ErrExecutionReverted || (err != nil && strings.Contains(err.Error(), "invalid opcode:")) {
 		log.Warn("vm error: %w", err)
