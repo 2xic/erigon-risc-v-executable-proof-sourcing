@@ -155,8 +155,7 @@ type SimpleTracer struct {
 }
 
 func NewSimpleTracer() *SimpleTracer {
-	// Create a simple in-memory state for testing
-	statedb := state.New(&MockStateReader{})
+	statedbInMemory := state.New(&MockStateReader{})
 
 	blockCtx := evmtypes.BlockContext{
 		CanTransfer: func(db evmtypes.IntraBlockState, addr libcommon.Address, amount *uint256.Int) (bool, error) {
@@ -174,8 +173,7 @@ func NewSimpleTracer() *SimpleTracer {
 		Difficulty:  big.NewInt(1),
 	}
 
-	// Create a custom chain config with ChainID 1337 for testing
-	chainConfig := *chain.AllProtocolChanges
+	chainConfig := chain.AllProtocolChanges
 	chainConfig.ChainID = big.NewInt(1337)
 
 	txCtx := evmtypes.TxContext{
@@ -184,7 +182,8 @@ func NewSimpleTracer() *SimpleTracer {
 	}
 
 	tracer := NewStateTracer()
-	// Initialize the values that would normally be set in CaptureTxStart
+
+	// TODO: for some reason capture tx start does not trigger.
 	tracer.blockTime = blockCtx.Time
 	tracer.chainId = new(uint256.Int)
 	tracer.chainId.SetFromBig(chainConfig.ChainID)
@@ -201,12 +200,12 @@ func NewSimpleTracer() *SimpleTracer {
 		Tracer: hooks,
 	}
 
-	evm := vm.NewEVM(blockCtx, txCtx, statedb, &chainConfig, vmConfig)
+	evm := vm.NewEVM(blockCtx, txCtx, statedbInMemory, chainConfig, vmConfig)
 	in := vm.NewEVMInterpreter(evm, vmConfig)
 	tracer.setJumpTable(in.JT())
 
 	return &SimpleTracer{
-		state:  NewMockState(), // Keep the mock state for our custom methods
+		state:  NewMockState(),
 		tracer: tracer,
 		evm:    evm,
 	}

@@ -3,8 +3,6 @@ module erigon-transpiler-risc-v
 go 1.24.1
 
 replace (
-	//	github.com/anacrolix/torrent => github.com/erigontech/torrent v1.54.3-alpha-1
-	//	github.com/crate-crypto/go-kzg-4844 => github.com/erigontech/go-kzg-4844 v0.0.0-20250130131058-ce13be60bc86
 	github.com/crate-crypto/go-kzg-4844 => github.com/erigontech/go-kzg-4844 v0.0.0-20250130131058-ce13be60bc86
 	github.com/erigontech/erigon => ./erigon
 	github.com/erigontech/erigon-db => ./erigon/erigon-db
