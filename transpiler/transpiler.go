@@ -72,13 +72,11 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		value := binary.BigEndian.Uint32(op.Arguments)
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
 	case vm.PUSH5, vm.PUSH6, vm.PUSH7:
-		// For PUSH5-PUSH7, we need to handle them like larger values since they don't fit in standard types
 		value := new(uint256.Int)
 		value.SetBytes(op.Arguments)
 		varName := tr.dataSection.Add(value)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.PUSH8:
-		// For PUSH8, use the same approach as larger PUSH opcodes
 		value := new(uint256.Int)
 		value.SetBytes(op.Arguments)
 		varName := tr.dataSection.Add(value)
@@ -205,6 +203,24 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		codeSizeUint256 := uint256.NewInt(codeSize)
 		varName := tr.dataSection.Add(codeSizeUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.LOG1:
+		// LOG1 pops 3 items: offset, size, topic1
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.LOG2:
+		// LOG2 pops 4 items: offset, size, topic1, topic2
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.LOG3:
+		// LOG3 pops 5 items: offset, size, topic1, topic2, topic3
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CALLDATASIZE:
 		size := uint256.NewInt(uint64(len(state.CallData)))
 		varName := tr.dataSection.Add(size)
@@ -253,6 +269,17 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 	case vm.INVALID:
 		// TODO: set a return code?
 		return
+	case vm.MCOPY:
+		// Pop arguments and get parameters
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		destOffset := op.StackSnapshot[2].Uint64()
+		srcOffset := op.StackSnapshot[1].Uint64()
+		length := op.StackSnapshot[0].Uint64()
+
+		tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
 	default:
 		panic(fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode)))
 	}
@@ -444,6 +471,25 @@ func (tr *transpiler) mload256Call() []prover.Instruction {
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "call", Operands: []string{"mload256_stack_scratch"}},
 	}
+}
+
+func (tr *transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.Instruction {
+	var instructions []prover.Instruction
+
+	if length == 0 {
+		return instructions
+	}
+
+	for i := uint64(0); i < length; i++ {
+		instructions = append(instructions, []prover.Instruction{
+			{Name: "li", Operands: []string{"t0", fmt.Sprintf("%d", srcOffset+i)}},
+			{Name: "lb", Operands: []string{"t1", "0(t0)"}},
+			{Name: "li", Operands: []string{"t2", fmt.Sprintf("%d", destOffset+i)}},
+			{Name: "sb", Operands: []string{"t1", "0(t2)"}},
+		}...)
+	}
+
+	return instructions
 }
 
 func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.Instruction {

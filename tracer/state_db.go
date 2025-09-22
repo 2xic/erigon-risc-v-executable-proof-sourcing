@@ -2,7 +2,6 @@ package tracer
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 
@@ -15,18 +14,9 @@ import (
 	"github.com/erigontech/erigon-lib/log/v3"
 	libstate "github.com/erigontech/erigon-lib/state"
 
-	"github.com/erigontech/erigon/consensus"
-	"github.com/erigontech/erigon/consensus/misc"
-	"github.com/erigontech/erigon/core"
-	"github.com/erigontech/erigon/core/rawdb"
+	"github.com/erigontech/erigon-db/rawdb"
 	"github.com/erigontech/erigon/core/state"
-	"github.com/erigontech/erigon/core/tracing"
-	"github.com/erigontech/erigon/core/types"
-	"github.com/erigontech/erigon/core/vm"
-	"github.com/erigontech/erigon/core/vm/evmtypes"
-	"github.com/erigontech/erigon/params"
-	"github.com/erigontech/erigon/turbo/rpchelper"
-	"github.com/holiman/uint256"
+	"github.com/erigontech/erigon/rpc/rpchelper"
 )
 
 func GetContractCode(chainData string, address libcommon.Address, blockNumber uint64) ([]byte, error) {
@@ -42,7 +32,7 @@ func GetContractCode(chainData string, address libcommon.Address, blockNumber ui
 
 	// Create a state reader for the specific block
 	dirs := datadir.New(filepath.Dir(chainData))
-	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +42,10 @@ func GetContractCode(chainData string, address libcommon.Address, blockNumber ui
 		return nil, err
 	}
 
-	tdb := temporal.New(db, agg)
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
 	stateReader := state.NewHistoryReaderV3()
 	temporalTx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
@@ -64,7 +57,7 @@ func GetContractCode(chainData string, address libcommon.Address, blockNumber ui
 	stateReader.SetTxNum(agg.EndTxNumMinimax())
 
 	// Read the contract code
-	code, err := stateReader.ReadAccountCode(address, 0)
+	code, err := stateReader.ReadAccountCode(address)
 	if err != nil {
 		return nil, fmt.Errorf("reading contract code: %w", err)
 	}
@@ -130,7 +123,7 @@ func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([
 
 	// Set up aggregator and domains
 	dirs := datadir.New(filepath.Dir(chainData))
-	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +135,10 @@ func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([
 	}
 
 	// Create temporal transaction
-	tdb := temporal.New(db, agg)
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
 	defer tdb.Close()
 
 	temporalTx, err := tdb.BeginTemporalRo(context.Background())
@@ -159,7 +155,7 @@ func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([
 	defer domains.Close()
 
 	// Create ReaderV3 - the key component
-	r := state.NewReaderV3(domains)
+	r := state.NewReaderV3(domains.AsGetter(temporalTx))
 
 	// First, read account data to get the correct incarnation
 	acc, err := r.ReadAccountData(address)
@@ -175,7 +171,7 @@ func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([
 	fmt.Printf("Is empty code hash: %t\n", acc.IsEmptyCodeHash())
 
 	// Read contract code using the account's actual incarnation
-	code, err := r.ReadAccountCode(address, acc.Incarnation)
+	code, err := r.ReadAccountCode(address)
 	if err != nil {
 		return nil, fmt.Errorf("reading contract code: %w", err)
 	}
@@ -193,7 +189,7 @@ func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([
 	hr := state.NewHistoryReaderV3()
 	hr.SetTx(temporalTx)
 	hr.SetTxNum(domains.TxNum())
-	historicalCode, err := hr.ReadAccountCode(address, acc.Incarnation)
+	historicalCode, err := hr.ReadAccountCode(address)
 	if err != nil {
 		fmt.Printf("Historical code read error: %v\n", err)
 	} else {
@@ -216,7 +212,7 @@ func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byt
 	*/
 	// Set up domains for state access
 	dirs := datadir.New(filepath.Dir(chainData))
-	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +223,10 @@ func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byt
 	}
 
 	// Create temporal transaction for state access
-	tdb := temporal.New(db, agg)
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
 	temporalTx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
 		return nil, err
@@ -242,8 +241,8 @@ func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byt
 	latestTx := domains.TxNum()
 	fmt.Println("latests tx ", latestTx)
 	defer domains.Close()
-	r := state.NewReaderV3(domains)
-	code, err := r.ReadAccountCode(libcommon.BytesToAddress(address[:]), 0)
+	r := state.NewReaderV3(domains.AsGetter(temporalTx))
+	code, err := r.ReadAccountCode(libcommon.BytesToAddress(address[:]))
 	if err != nil {
 		return nil, fmt.Errorf("reading contract code: %w", err)
 	}
@@ -264,7 +263,7 @@ func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byt
 		fmt.Println("Is empty codehash?", acc.IsEmptyCodeHash())
 	}
 
-	code, err = rw.ReadAccountCode(libcommon.BytesToAddress(address[:]), 1)
+	code, err = rw.ReadAccountCode(libcommon.BytesToAddress(address[:]))
 	if err != nil {
 		return nil, fmt.Errorf("reading contract code: %w", err)
 	}
@@ -302,8 +301,9 @@ func GetLatestsTransactionInfo(chainData string) error {
 		fmt.Println("so many txs ... ", i)
 	}
 	return nil
-}*/
+}*
 
+/*
 func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 	logger := log.New()
 	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
@@ -322,7 +322,11 @@ func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 
 	// Create a HistoryReaderV3 which implements StateReader
 	stateReader := state.NewHistoryReaderV3()
-	tdb := temporal.New(db, agg)
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+
 	tx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
 		return nil, err
@@ -356,13 +360,14 @@ func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 				latestBlock := rawdb.ReadCurrentHeader(tx)
 				fmt.Println("latests block", latestBlock)
 
-			}*/
+			}
 
 	// Create IntraBlockState using the proper StateReader
 	stateDB := state.New(stateReader)
 
 	return stateDB, nil
 }
+*/
 
 /*
 
@@ -422,6 +427,7 @@ func ReplayTransaction(chainData string, txHash libcommon.Hash, customTracer *St
 }
 */
 // SimpleReplayTransaction - replays a single transaction using otterscan approach
+/*
 func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *StateTracer) error {
 	logger := log.New()
 	fmt.Println("Trying to open db")
@@ -442,7 +448,11 @@ func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *St
 	}
 
 	fmt.Println("Trying to open temporal")
-	tdb := temporal.New(db, agg)
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+
 	tx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
 		return err
@@ -669,7 +679,7 @@ func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *St
 	fmt.Printf("   Failed: %v\n", ret)
 	return nil
 }
-
+*/
 /*
 // SimpleReplayTransaction - replays a single transaction using otterscan approach
 func SimpleReplayTransaction2(chainData string, txHash libcommon.Hash, tracer *StateTracer) error {
@@ -818,7 +828,7 @@ func SimpleReplayTransaction2(chainData string, txHash libcommon.Hash, tracer *S
 	return nil
 }
 */
-
+/*
 // TraceBlock processes all transactions in a block with your custom tracer
 func TraceBlock(chainData string, blockNumber uint64, tracer *StateTracer) error {
 	logger := log.New()
@@ -1070,3 +1080,4 @@ func TraceBlock(chainData string, blockNumber uint64, tracer *StateTracer) error
 
 	return nil
 }
+*/

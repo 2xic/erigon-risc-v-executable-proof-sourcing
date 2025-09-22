@@ -1,4 +1,4 @@
-package main
+/*package main
 
 import (
 	"fmt"
@@ -43,3 +43,4 @@ func main() {
 	fmt.Println("✅ Transaction replayed successfully!")
 	fmt.Println("Your custom tracer was called during execution")
 }
+*/
