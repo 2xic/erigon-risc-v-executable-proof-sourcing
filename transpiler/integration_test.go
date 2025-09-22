@@ -788,3 +788,69 @@ func TestLogOpcodes(t *testing.T) {
 		})
 	}
 }
+
+func TestMCopyOpcode(t *testing.T) {
+	tests := []struct {
+		name     string
+		bytecode []byte
+	}{
+		{
+			name: "MCOPY_basic",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.MSTORE),
+
+				byte(vm.PUSH1), 0x01,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.MCOPY),
+			},
+		},
+		{
+			name: "MCOPY_overlapping_forward",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0xFF,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.MSTORE),
+
+				byte(vm.PUSH1), 0x01,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.PUSH1), 0x08,
+				byte(vm.MCOPY),
+			},
+		},
+		{
+			name: "MCOPY_zero_length",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x00,
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.MCOPY),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assembly, evmSnapshot, err := NewTestRunner(tc.bytecode).Execute()
+			assert.NoError(t, err, "Failed to execute bytecode for %s", tc.name)
+
+			bytecode, err := assembly.ToBytecode()
+			assert.NoError(t, err, "Failed to convert to bytecode for %s", tc.name)
+
+			execution, err := prover.NewUnicornRunner()
+			assert.NoError(t, err)
+			snapshot, err := execution.Execute(bytecode)
+			assert.NoError(t, err, "Failed to execute in prover for %s", tc.name)
+
+			// Verify that the stack is as expected at each step of the execution
+			snapShot := *snapshot.StackSnapshots
+			assert.Len(t, snapShot, len(evmSnapshot.Snapshots), "Snapshot length mismatch for %s", tc.name)
+
+			for i := range evmSnapshot.Snapshots {
+				assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on %s (instruction %d)", tc.name, i))
+			}
+		})
+	}
+}
