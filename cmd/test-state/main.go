@@ -11,12 +11,37 @@ import (
 )
 
 func main() {
+	fmt.Println("State lookup")
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <chaindata-path>\n", os.Args[0])
 		os.Exit(1)
 	}
 
 	chainDataPath := os.Args[1]
+
+	fmt.Printf("Testing state database: %s\n", chainDataPath)
+	latestsBlock, err := tracer.GetLatestsBLockInStateDb(chainDataPath)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("latests block", latestsBlock)
+	bytes, err := hex.DecodeString("1f98431c8ad98523631ae4a59f267346ea31f984")
+	if err != nil {
+		panic(err)
+	}
+	contractCode, err := tracer.GetContractCodeViaState(chainDataPath, common.BytesToAddress(bytes))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(contractCode)
+	contractCodeV3, err := tracer.GetContractCodeWithReaderV3(chainDataPath, common.BytesToAddress(bytes))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(contractCodeV3)
+
+	//err = tracer.GetLatestsTransactionInfo(chainDataPath)
+	//fmt.Println(err)
 
 	fmt.Printf("Testing state database: %s\n", chainDataPath)
 

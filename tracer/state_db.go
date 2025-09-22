@@ -14,6 +14,7 @@ import (
 	"github.com/erigontech/erigon-lib/kv/temporal"
 	"github.com/erigontech/erigon-lib/log/v3"
 	libstate "github.com/erigontech/erigon-lib/state"
+
 	"github.com/erigontech/erigon/consensus"
 	"github.com/erigontech/erigon/consensus/misc"
 	"github.com/erigontech/erigon/core"
@@ -24,12 +25,288 @@ import (
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
 	"github.com/erigontech/erigon/params"
+	"github.com/erigontech/erigon/turbo/rpchelper"
 	"github.com/holiman/uint256"
 )
 
+func GetContractCode(chainData string, address libcommon.Address, blockNumber uint64) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Create a state reader for the specific block
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	tdb := temporal.New(db, agg)
+	stateReader := state.NewHistoryReaderV3()
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	stateReader.SetTx(temporalTx)
+	stateReader.SetTxNum(agg.EndTxNumMinimax())
+
+	// Read the contract code
+	code, err := stateReader.ReadAccountCode(address, 0)
+	if err != nil {
+		return nil, fmt.Errorf("reading contract code: %w", err)
+	}
+
+	if len(code) > 0 {
+		return code, nil
+	}
+
+	stateDB := state.New(stateReader)
+	code, err = stateDB.GetCode(address)
+	if err != nil {
+		return nil, fmt.Errorf("getting contract code: %w", err)
+	}
+
+	return code, nil
+}
+
+func GetLatestsBLockInStateDb(chainData string) (uint64, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// Try multiple approaches to get the latest block number
+
+	// Approach 1: Use rpchelper.GetLatestBlockNumber (most robust)
+	blockNum, err := rpchelper.GetLatestBlockNumber(tx)
+	if err == nil {
+		fmt.Println("rpc helper block num ", blockNum)
+		return blockNum, nil
+	}
+
+	// Approach 2: Try ReadCurrentHeader
+	//	//latestBlock := rawdb.ReadCurrentHeader(tx)
+	//	//if latestBlock != nil {
+	//	//	//fmt.Println("read the header")
+	//	//	//return latestBlock.Number.Uint64(), nil
+	//	}
+	// Approach 3: Try reading head hash directly
+	headHash := rawdb.ReadHeadHeaderHash(tx)
+	if headHash != (libcommon.Hash{}) {
+		fmt.Println("read the hash it")
+		headNumber := rawdb.ReadHeaderNumber(tx, headHash)
+		if headNumber != nil {
+			return *headNumber, nil
+		}
+	}
+
+	return 0, fmt.Errorf("could not read latest block number from database")
+}
+
+func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+
+	// Database setup
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Set up aggregator and domains
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal transaction
+	tdb := temporal.New(db, agg)
+	defer tdb.Close()
+
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	// Create shared domains
+	domains, err := libstate.NewSharedDomains(temporalTx, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer domains.Close()
+
+	// Create ReaderV3 - the key component
+	r := state.NewReaderV3(domains)
+
+	// First, read account data to get the correct incarnation
+	acc, err := r.ReadAccountData(address)
+	if err != nil {
+		return nil, fmt.Errorf("reading account data: %w", err)
+	}
+	if acc == nil {
+		return nil, fmt.Errorf("account not found")
+	}
+
+	fmt.Printf("Account found - Incarnation: %d, Balance: %s, Nonce: %d\n",
+		acc.Incarnation, acc.Balance.String(), acc.Nonce)
+	fmt.Printf("Is empty code hash: %t\n", acc.IsEmptyCodeHash())
+
+	// Read contract code using the account's actual incarnation
+	code, err := r.ReadAccountCode(address, acc.Incarnation)
+	if err != nil {
+		return nil, fmt.Errorf("reading contract code: %w", err)
+	}
+
+	fmt.Printf("Code size: %d bytes\n", len(code))
+
+	codeBytes, found, err := temporalTx.GetLatest(kv.CodeDomain, address[:])
+	if err != nil {
+		fmt.Printf("Error querying code domain: %v\n", err)
+	} else {
+		fmt.Printf("Direct code domain query - Found: %t, Size: %d\n", found, len(codeBytes))
+	}
+	fmt.Println("code bytes ", len(codeBytes))
+
+	hr := state.NewHistoryReaderV3()
+	hr.SetTx(temporalTx)
+	hr.SetTxNum(domains.TxNum())
+	historicalCode, err := hr.ReadAccountCode(address, acc.Incarnation)
+	if err != nil {
+		fmt.Printf("Historical code read error: %v\n", err)
+	} else {
+		fmt.Printf("Historical code size: %d\n", len(historicalCode))
+	}
+
+	return code, nil
+}
+
+func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	/*tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	*/
+	// Set up domains for state access
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal transaction for state access
+	tdb := temporal.New(db, agg)
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	// Create state reader - this is the key component
+	domains, err := libstate.NewSharedDomains(temporalTx, logger)
+	if err != nil {
+		return nil, err
+	}
+	latestTx := domains.TxNum()
+	fmt.Println("latests tx ", latestTx)
+	defer domains.Close()
+	r := state.NewReaderV3(domains)
+	code, err := r.ReadAccountCode(libcommon.BytesToAddress(address[:]), 0)
+	if err != nil {
+		return nil, fmt.Errorf("reading contract code: %w", err)
+	}
+	fmt.Println("code size ", len(code))
+
+	rw := state.NewHistoryReaderV3()
+	rw.SetTx(temporalTx)
+	rw.SetTxNum(latestTx)
+	acc, err := rw.ReadAccountData(address)
+	if err != nil /*|| acc.IsEmptyCodeHash()*/ {
+		return nil, err
+	}
+	if acc != nil {
+		fmt.Println("Incarnation ", acc.Incarnation)
+		fmt.Println("Balance ", acc.Balance)
+		fmt.Println("Nonce ", acc.Nonce)
+		fmt.Println("Initialised ", acc.Initialised)
+		fmt.Println("Is empty codehash?", acc.IsEmptyCodeHash())
+	}
+
+	code, err = rw.ReadAccountCode(libcommon.BytesToAddress(address[:]), 1)
+	if err != nil {
+		return nil, fmt.Errorf("reading contract code: %w", err)
+	}
+	fmt.Println("code size ", len(code))
+
+	return code, nil
+}
+
+/*
+func GetLatestsTransactionInfo(chainData string) error {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Read the block header to get block data
+	headHash := rawdb.ReadHeadHeaderHash(tx)
+
+	// Read the block body to get transactions
+	body, err := rawdb.ReadBodyWithTransactions(tx, headHash)
+	if err != nil {
+		return fmt.Errorf("failed to read block body: %w", err)
+	}
+	if body == nil {
+		return fmt.Errorf("block body %d not found", blockNumber)
+	}
+
+	// Find the actual transaction in the block
+	for i, _ := range body.Transactions {
+		fmt.Println("so many txs ... ", i)
+	}
+	return nil
+}*/
+
 func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 	logger := log.New()
-	db := mdbx.New(kv.ChainDB, logger).Path(chainData).MustOpen()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
 
 	dirs := datadir.New(filepath.Dir(chainData))
 
@@ -43,23 +320,43 @@ func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 		return nil, err
 	}
 
-	tdb := temporal.New(db, agg)
-
 	// Create a HistoryReaderV3 which implements StateReader
 	stateReader := state.NewHistoryReaderV3()
+	tdb := temporal.New(db, agg)
 	tx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
 		return nil, err
 	}
+	a, err := hex.DecodeString("8bb3cf2118e5031f9f9663199dda380055c989f64f4746ee5cc2f654029d6e5f")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find transaction: %w", err)
+	}
+	txHash := libcommon.BytesToHash(a)
+	blockNumber, txNum, err := rawdb.ReadTxLookupEntry(tx, txHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find transaction: %w", err)
+	}
+	if blockNumber == nil {
+		return nil, fmt.Errorf("transaction %s not found", txHash.Hex())
+	}
+
 	stateReader.SetTx(tx)
+	stateReader.SetTxNum((*txNum) - 1)
 
 	// Get the latest block number and set transaction to end of that block
-	latestBlock := rawdb.ReadCurrentHeader(tx)
-	if latestBlock != nil {
-		fmt.Println("LATESTS BLOCK: ", latestBlock.Number.Uint64())
-		// Set to the transaction number at the end of the latest block
-		stateReader.SetTxNum(latestBlock.Number.Uint64() * 1000000) // rough approximation
-	}
+	/*
+		latestBlock := rawdb.ReadCurrentHeader(tx)
+			if latestBlock != nil {
+				fmt.Println("LATESTS BLOCK: ", latestBlock.Number.Uint64())
+				// Set to the transaction number at the end of the latest block
+				stateReader.SetTxNum(latestBlock.Number.Uint64() * 1000000) // rough approximation
+			} else {
+				fmt.Println("Latests header is null ... ")
+				stateReader.SetTxNum(agg.EndTxNumMinimax())
+				latestBlock := rawdb.ReadCurrentHeader(tx)
+				fmt.Println("latests block", latestBlock)
+
+			}*/
 
 	// Create IntraBlockState using the proper StateReader
 	stateDB := state.New(stateReader)
@@ -72,7 +369,7 @@ func NewStateDbAA(chainData string) (*state.IntraBlockState, error) {
 // ReplayTransaction finds a transaction and sets up for replay (simplified to avoid dependency issues)
 func ReplayTransaction(chainData string, txHash libcommon.Hash, customTracer *StateTracer) error {
 	logger := log.New()
-	db := mdbx.New(kv.ChainDB, logger).Path(chainData).MustOpen()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
 	defer db.Close()
 
 	dirs := datadir.New(filepath.Dir(chainData))
@@ -127,11 +424,13 @@ func ReplayTransaction(chainData string, txHash libcommon.Hash, customTracer *St
 // SimpleReplayTransaction - replays a single transaction using otterscan approach
 func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *StateTracer) error {
 	logger := log.New()
-	db := mdbx.New(kv.ChainDB, logger).Path(chainData).MustOpen()
+	fmt.Println("Trying to open db")
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
 	defer db.Close()
 
 	dirs := datadir.New(filepath.Dir(chainData))
 
+	fmt.Println("Trying to open Aggregator")
 	agg, err := libstate.NewAggregator2(context.Background(), dirs, config3.DefaultStepSize, db, logger)
 	if err != nil {
 		return err
@@ -142,6 +441,7 @@ func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *St
 		return err
 	}
 
+	fmt.Println("Trying to open temporal")
 	tdb := temporal.New(db, agg)
 	tx, err := tdb.BeginTemporalRo(context.Background())
 	if err != nil {
@@ -374,7 +674,7 @@ func SimpleReplayTransaction(chainData string, txHash libcommon.Hash, tracer *St
 // SimpleReplayTransaction - replays a single transaction using otterscan approach
 func SimpleReplayTransaction2(chainData string, txHash libcommon.Hash, tracer *StateTracer) error {
 	logger := log.New()
-	db := mdbx.New(kv.ChainDB, logger).Path(chainData).MustOpen()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
 	defer db.Close()
 
 	dirs := datadir.New(filepath.Dir(chainData))
@@ -522,7 +822,7 @@ func SimpleReplayTransaction2(chainData string, txHash libcommon.Hash, tracer *S
 // TraceBlock processes all transactions in a block with your custom tracer
 func TraceBlock(chainData string, blockNumber uint64, tracer *StateTracer) error {
 	logger := log.New()
-	db := mdbx.New(kv.ChainDB, logger).Path(chainData).MustOpen()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
 	defer db.Close()
 
 	dirs := datadir.New(filepath.Dir(chainData))

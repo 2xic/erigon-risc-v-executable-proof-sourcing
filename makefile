@@ -11,7 +11,7 @@ bins/prove: cmd/prove/main.go
 
 bins/test-state: cmd/test-state/main.go
 	@mkdir -p bins
-	go build -o bins/test-state ./cmd/test-state
+	go build -p 4 -o bins/test-state ./cmd/test-state
 
 bins/replay-tx: cmd/replay-tx/main.go
 	@mkdir -p bins
