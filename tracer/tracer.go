@@ -4,12 +4,15 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/erigontech/erigon-lib/chain"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/log/v3"
+	"github.com/erigontech/erigon-lib/types"
+	"github.com/erigontech/erigon-lib/types/accounts"
+	"github.com/erigontech/erigon/core/state"
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
-	"github.com/erigontech/erigon/params"
 	"github.com/holiman/uint256"
 )
 
@@ -25,6 +28,40 @@ type EvmInstructionMetadata struct {
 	Opcode        vm.OpCode
 	Arguments     []byte
 	StackSnapshot []uint256.Int
+}
+
+// =============================================================================
+// MOCK STATE READER
+// =============================================================================
+
+type MockStateReader struct{}
+
+func (m *MockStateReader) ReadAccountData(address libcommon.Address) (*accounts.Account, error) {
+	return &accounts.Account{}, nil
+}
+
+func (m *MockStateReader) ReadAccountDataForDebug(address libcommon.Address) (*accounts.Account, error) {
+	return &accounts.Account{}, nil
+}
+
+func (m *MockStateReader) ReadAccountStorage(address libcommon.Address, key libcommon.Hash) (uint256.Int, bool, error) {
+	return *uint256.NewInt(0), false, nil
+}
+
+func (m *MockStateReader) HasStorage(address libcommon.Address) (bool, error) {
+	return false, nil
+}
+
+func (m *MockStateReader) ReadAccountCode(address libcommon.Address) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *MockStateReader) ReadAccountCodeSize(address libcommon.Address) (int, error) {
+	return 0, nil
+}
+
+func (m *MockStateReader) ReadAccountIncarnation(address libcommon.Address) (uint64, error) {
+	return 0, nil
 }
 
 // =============================================================================
@@ -47,47 +84,47 @@ func (t *StateTracer) setJumpTable(jt *vm.JumpTable) {
 	t.jumpTable = jt
 }
 
-func (t *StateTracer) CaptureTxStart(gasLimit uint64) {}
-func (t *StateTracer) CaptureTxEnd(restGas uint64)    {}
-func (t *StateTracer) CaptureStart(env *vm.EVM, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+func (t *StateTracer) CaptureTxStart(vm *tracing.VMContext, tx types.Transaction, from libcommon.Address) {
 }
-func (t *StateTracer) CaptureEnd(output []byte, usedGas uint64, err error) {}
-func (t *StateTracer) CaptureEnter(typ vm.OpCode, from, to libcommon.Address, precompile, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+func (t *StateTracer) CaptureTxEnd(receipt *types.Receipt, err error) {}
+func (t *StateTracer) CaptureEnter(depth int, typ byte, from libcommon.Address, to libcommon.Address, precompile bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
 }
-func (t *StateTracer) CaptureExit(output []byte, usedGas uint64, err error) {}
-func (t *StateTracer) CaptureFault(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, opDepth int, err error) {
+func (t *StateTracer) CaptureExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+}
+func (t *StateTracer) CaptureFault(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, depth int, err error) {
 }
 
-func (t *StateTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, opDepth int, err error) {
-	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, op.String(), gas, scope.Stack.Len())
+func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
+	stackData := scope.StackData()
+	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, vm.OpCode(op).String(), gas, len(stackData))
 
 	arguments := []byte{}
-	if op.IsPushWithImmediateArgs() {
+	opCode := vm.OpCode(op)
+	if opCode.IsPushWithImmediateArgs() {
 		size := uint64(op) - uint64(vm.PUSH1-1)
 		arguments = make([]byte, size)
-		index := 0
-		for i := pc + 1; i <= pc+size; i++ {
-			arguments[index] = scope.Contract.Code[i]
-			index++
+		code := scope.Code()
+		for i := uint64(0); i < size; i++ {
+			if pc+1+i < uint64(len(code)) {
+				arguments[i] = code[pc+1+i]
+			}
 		}
 	}
 
-	snapshot := make([]uint256.Int, len(scope.Stack.Data))
-	for i := range len(scope.Stack.Data) {
-		snapshot[i] = scope.Stack.Data[i]
-	}
+	snapshot := make([]uint256.Int, len(stackData))
+	copy(snapshot, stackData)
 
 	// TODO: this should likely not be re-computed
 	t.executionState = &EvmExecutionState{
-		CallValue: scope.Contract.Value(),
-		CallData:  scope.Contract.Input,
-		CodeData:  scope.Contract.Code,
+		CallValue: scope.CallValue(),
+		CallData:  scope.CallInput(),
+		CodeData:  scope.Code(),
 		Gas:       uint256.NewInt(gas),
-		Address:   scope.Contract.Address(),
+		Address:   scope.Address(),
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
-		Opcode:        op,
+		Opcode:        vm.OpCode(op),
 		Arguments:     arguments,
 		StackSnapshot: snapshot,
 	})
@@ -104,7 +141,8 @@ type SimpleTracer struct {
 }
 
 func NewSimpleTracer() *SimpleTracer {
-	state := NewMockState()
+	// Create a simple in-memory state for testing
+	statedb := state.New(&MockStateReader{})
 
 	blockCtx := evmtypes.BlockContext{
 		CanTransfer: func(db evmtypes.IntraBlockState, addr libcommon.Address, amount *uint256.Int) (bool, error) {
@@ -114,7 +152,7 @@ func NewSimpleTracer() *SimpleTracer {
 		Transfer: func(db evmtypes.IntraBlockState, sender, recipient libcommon.Address, amount *uint256.Int, bailout bool) error {
 			return nil
 		},
-		GetHash:     func(uint64) libcommon.Hash { return libcommon.Hash{} },
+		GetHash:     func(uint64) (libcommon.Hash, error) { return libcommon.Hash{}, nil },
 		Coinbase:    libcommon.Address{},
 		GasLimit:    1000000,
 		BlockNumber: 23041867,
@@ -128,17 +166,24 @@ func NewSimpleTracer() *SimpleTracer {
 	}
 
 	tracer := NewStateTracer()
+	hooks := &tracing.Hooks{
+		OnOpcode:  tracer.CaptureState,
+		OnTxStart: tracer.CaptureTxStart,
+		OnTxEnd:   tracer.CaptureTxEnd,
+		OnEnter:   tracer.CaptureEnter,
+		OnExit:    tracer.CaptureExit,
+		OnFault:   tracer.CaptureFault,
+	}
 	vmConfig := vm.Config{
-		Tracer: tracer,
-		Debug:  true,
+		Tracer: hooks,
 	}
 
-	evm := vm.NewEVM(blockCtx, txCtx, state, params.AllProtocolChanges, vmConfig)
+	evm := vm.NewEVM(blockCtx, txCtx, statedb, chain.AllProtocolChanges, vmConfig)
 	in := vm.NewEVMInterpreter(evm, evm.Config())
-	tracer.setJumpTable(in.JT)
+	tracer.setJumpTable(in.JT())
 
 	return &SimpleTracer{
-		state:  state,
+		state:  NewMockState(), // Keep the mock state for our custom methods
 		tracer: tracer,
 		evm:    evm,
 	}
