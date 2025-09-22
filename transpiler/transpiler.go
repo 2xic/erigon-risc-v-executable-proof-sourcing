@@ -72,13 +72,11 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		value := binary.BigEndian.Uint32(op.Arguments)
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
 	case vm.PUSH5, vm.PUSH6, vm.PUSH7:
-		// For PUSH5-PUSH7, we need to handle them like larger values since they don't fit in standard types
 		value := new(uint256.Int)
 		value.SetBytes(op.Arguments)
 		varName := tr.dataSection.Add(value)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.PUSH8:
-		// For PUSH8, use the same approach as larger PUSH opcodes
 		value := new(uint256.Int)
 		value.SetBytes(op.Arguments)
 		varName := tr.dataSection.Add(value)
