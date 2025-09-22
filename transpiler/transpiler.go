@@ -271,6 +271,17 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 	case vm.INVALID:
 		// TODO: set a return code?
 		return
+	case vm.MCOPY:
+		// Pop arguments and get parameters
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		destOffset := op.StackSnapshot[2].Uint64()
+		srcOffset := op.StackSnapshot[1].Uint64()
+		length := op.StackSnapshot[0].Uint64()
+
+		tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
 	default:
 		panic(fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode)))
 	}
@@ -462,6 +473,25 @@ func (tr *transpiler) mload256Call() []prover.Instruction {
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "call", Operands: []string{"mload256_stack_scratch"}},
 	}
+}
+
+func (tr *transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.Instruction {
+	var instructions []prover.Instruction
+
+	if length == 0 {
+		return instructions
+	}
+
+	for i := uint64(0); i < length; i++ {
+		instructions = append(instructions, []prover.Instruction{
+			{Name: "li", Operands: []string{"t0", fmt.Sprintf("%d", srcOffset+i)}},
+			{Name: "lb", Operands: []string{"t1", "0(t0)"}},
+			{Name: "li", Operands: []string{"t2", fmt.Sprintf("%d", destOffset+i)}},
+			{Name: "sb", Operands: []string{"t1", "0(t2)"}},
+		}...)
+	}
+
+	return instructions
 }
 
 func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.Instruction {
