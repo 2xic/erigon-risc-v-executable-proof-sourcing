@@ -2,21 +2,28 @@ package tracer
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 
+	"github.com/erigontech/erigon-db/rawdb"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/datadir"
 	"github.com/erigontech/erigon-lib/config3"
+	"github.com/erigontech/erigon-lib/crypto"
 	"github.com/erigontech/erigon-lib/kv"
+	"github.com/erigontech/erigon-lib/kv/kvcache"
 	"github.com/erigontech/erigon-lib/kv/mdbx"
 	"github.com/erigontech/erigon-lib/kv/temporal"
 	"github.com/erigontech/erigon-lib/log/v3"
 	libstate "github.com/erigontech/erigon-lib/state"
-
-	"github.com/erigontech/erigon-db/rawdb"
+	"github.com/erigontech/erigon-lib/types/accounts"
 	"github.com/erigontech/erigon/core/state"
+	"github.com/erigontech/erigon/eth/ethconfig"
+	"github.com/erigontech/erigon/execution/stagedsync/stages"
+	"github.com/erigontech/erigon/polygon/heimdall"
 	"github.com/erigontech/erigon/rpc/rpchelper"
+	"github.com/erigontech/erigon/turbo/snapshotsync/freezeblocks"
 )
 
 func GetContractCode(chainData string, address libcommon.Address, blockNumber uint64) ([]byte, error) {
@@ -112,6 +119,118 @@ func GetLatestsBLockInStateDb(chainData string) (uint64, error) {
 	}
 
 	return 0, fmt.Errorf("could not read latest block number from database")
+}
+
+func GetContractCodeRPCStyle(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+
+	// Database setup
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Set up aggregator and domains
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal database
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+	defer tdb.Close()
+
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	// Create a state reader the same way RPC does for "latest"
+	stateReader := rpchelper.NewLatestStateReader(temporalTx)
+
+	// Read the contract code
+	code, err := stateReader.ReadAccountCode(address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read contract code: %w", err)
+	}
+
+	return code, nil
+}
+
+func GetContractCodeDirect(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+
+	// Database setup
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Set up aggregator and domains
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal database
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+	defer tdb.Close()
+
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	// First check if account exists
+	accData, _, err := temporalTx.GetLatest(kv.AccountsDomain, address[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read account: %w", err)
+	}
+
+	if len(accData) == 0 {
+		return nil, fmt.Errorf("account does not exist at address %x", address)
+	}
+
+	// Deserialize account to check code hash
+	var acc accounts.Account
+	if err := accounts.DeserialiseV3(&acc, accData); err != nil {
+		return nil, fmt.Errorf("failed to deserialize account: %w", err)
+	}
+
+	fmt.Printf("Account - Balance: %s, Nonce: %d, CodeHash: %x\n",
+		acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+	// Check if account has code (non-empty code hash)
+	if acc.IsEmptyCodeHash() {
+		return nil, fmt.Errorf("account %x is an EOA (no contract code)", address)
+	}
+
+	// Read code directly from CodeDomain
+	code, _, err := temporalTx.GetLatest(kv.CodeDomain, address[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read contract code: %w", err)
+	}
+
+	fmt.Printf("Code length: %d bytes\n", len(code))
+	return code, nil
 }
 
 func GetContractCodeWithReaderV3(chainData string, address libcommon.Address) ([]byte, error) {
@@ -270,6 +389,737 @@ func GetContractCodeViaState(chainData string, address libcommon.Address) ([]byt
 	fmt.Println("code size ", len(code))
 
 	return code, nil
+}
+
+// CheckCodeHashExists checks if code exists in the database for a specific code hash
+func CheckCodeHashExists(chainData string, codeHashHex string) error {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Convert hex string to bytes
+	codeHashBytes, err := hex.DecodeString(codeHashHex)
+	if err != nil {
+		fmt.Printf("Error decoding code hash: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("Looking up code for hash: %x\n", codeHashBytes)
+
+	// Try to get code by hash
+	code, err := tx.GetOne(kv.Code, codeHashBytes)
+	if err != nil {
+		fmt.Printf("Error reading from kv.Code table: %v\n", err)
+		return err
+	}
+
+	if len(code) > 0 {
+		fmt.Printf("✅ Code found! Length: %d bytes\n", len(code))
+		fmt.Printf("First 32 bytes: %x\n", code[:min(32, len(code))])
+	} else {
+		fmt.Printf("❌ No code found for this hash in kv.Code table\n")
+
+		// Let's check if the hash exists at all in the Code table
+		cursor, err := tx.Cursor(kv.Code)
+		if err != nil {
+			fmt.Printf("Error creating cursor: %v\n", err)
+			return err
+		}
+		defer cursor.Close()
+
+		count := 0
+		fmt.Printf("Scanning kv.Code table entries:\n")
+		for k, v, err := cursor.First(); k != nil && count < 10; k, v, err = cursor.Next() {
+			if err != nil {
+				fmt.Printf("Error scanning: %v\n", err)
+				break
+			}
+			fmt.Printf("  Entry %d: hash=%x, size=%d bytes\n", count+1, k, len(v))
+			count++
+		}
+		fmt.Printf("Scanned %d entries from kv.Code table\n", count)
+
+		// Let's also check other possible tables
+		fmt.Printf("\nChecking other tables that might contain code:\n")
+
+		// Check kv.PlainContractCode
+		codeCursor2, err := tx.Cursor(kv.PlainContractCode)
+		if err == nil {
+			defer codeCursor2.Close()
+			count2 := 0
+			for k, v, err := codeCursor2.First(); k != nil && count2 < 5; k, v, err = codeCursor2.Next() {
+				if err != nil {
+					break
+				}
+				fmt.Printf("  PlainContractCode entry %d: key=%x, size=%d bytes\n", count2+1, k, len(v))
+				count2++
+			}
+			fmt.Printf("PlainContractCode entries: %d\n", count2)
+		}
+
+		// Try the address (first 20 bytes of code hash) in PlainContractCode
+		addrBytes := codeHashBytes[:20]
+		fmt.Printf("Trying PlainContractCode with address key: %x\n", addrBytes)
+		plainCode, err := tx.GetOne(kv.PlainContractCode, addrBytes)
+		if err == nil && len(plainCode) > 0 {
+			fmt.Printf("✅ Found code in PlainContractCode: %d bytes\n", len(plainCode))
+		} else {
+			fmt.Printf("❌ No code in PlainContractCode for address key\n")
+		}
+	}
+
+	return nil
+}
+
+func GetContractCodeFixed(chainData string, dataDir string, address libcommon.Address) ([]byte, error) {
+	fmt.Printf("=== Starting GetContractCodeFixed for address %x ===\n", address)
+	logger := log.New()
+
+	// Database setup - use simple approach without aggregator
+	fmt.Printf("Opening database at %s\n", chainData)
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+	fmt.Printf("Database opened successfully\n")
+
+	// Skip aggregator - use direct database access like GetContractCodeRawDB
+	fmt.Printf("Starting direct database transaction...\n")
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		fmt.Printf("Failed to begin transaction: %v\n", err)
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	fmt.Printf("Getting account from PlainState...\n")
+	encodedAccount, err := tx.GetOne(kv.PlainState, address[:])
+	if err != nil {
+		fmt.Printf("Error reading from PlainState: %v\n", err)
+		return nil, err
+	}
+
+	if len(encodedAccount) == 0 {
+		fmt.Printf("Account not found in PlainState\n")
+		return nil, fmt.Errorf("account not found")
+	}
+
+	fmt.Printf("Found account in PlainState, deserializing...\n")
+	var acc accounts.Account
+	if err := accounts.DeserialiseV3(&acc, encodedAccount); err != nil {
+		fmt.Printf("Failed to deserialize account: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Account deserialized - Balance: %s, Nonce: %d, CodeHash: %x\n",
+		acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+	if acc.IsEmptyCodeHash() {
+		fmt.Printf("Account has empty code hash (EOA)\n")
+		return []byte{}, nil
+	}
+
+	fmt.Printf("Looking up code by hash in kv.Code table...\n")
+	code, err := tx.GetOne(kv.Code, acc.CodeHash[:])
+	if err != nil {
+		fmt.Printf("Error reading code by hash: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Found code: %d bytes\n", len(code))
+	return code, nil
+}
+
+func GetContractCodeRawDB(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	fmt.Printf("Trying raw database access for address %x\n", address)
+	// Method 1: Try to read code hash from account and then get code
+	encodedAccount, err := tx.GetOne(kv.PlainState, address[:])
+	if err != nil {
+		fmt.Printf("Error reading from PlainState: %v\n", err)
+	} else if len(encodedAccount) > 0 {
+		fmt.Printf("Found account in PlainState, length: %d\n", len(encodedAccount))
+		// Decode the account to get code hash
+		var acc accounts.Account
+		if err := accounts.DeserialiseV3(&acc, encodedAccount); err == nil {
+			fmt.Printf("Account - Balance: %s, Nonce: %d, CodeHash: %x\n",
+				acc.Balance.String(), acc.Nonce, acc.CodeHash)
+			if !acc.IsEmptyCodeHash() {
+				// Try to get code by code hash
+				code, err := tx.GetOne(kv.Code, acc.CodeHash[:])
+				if err != nil {
+					fmt.Printf("Error reading code by hash: %v\n", err)
+				} else {
+					fmt.Printf("Found code by hash, length: %d\n", len(code))
+					return code, nil
+				}
+			} else {
+				fmt.Printf("Account has empty code hash (EOA)\n")
+			}
+		} else {
+			fmt.Printf("Failed to deserialize account: %v\n", err)
+		}
+	} else {
+		fmt.Printf("No account found in PlainState\n")
+	}
+
+	return nil, fmt.Errorf("no code found for address %x", address)
+}
+
+// CheckDatabaseState performs various checks on the database state for debugging
+func CheckDatabaseState(chainData string) error {
+	logger := log.New()
+
+	// Database setup
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	fmt.Println("\n=== Checking Database Tables ===")
+	return nil
+}
+
+/*
+	rpcCode, rpcErr := stateReader.ReadAccountCode(address)
+	if rpcErr != nil {
+		fmt.Printf("RPC-style error: %v\n", rpcErr)
+	} else {
+		fmt.Printf("RPC-style result: %d bytes\n", len(rpcCode))
+	}
+
+	// Optional: Try to read account data for debugging info
+	accData, _, accErr := temporalTx.GetLatest(kv.AccountsDomain, address[:])
+	if accErr == nil && len(accData) > 0 {
+		var acc accounts.Account
+		if deserErr := accounts.DeserialiseV3(&acc, accData); deserErr == nil {
+			fmt.Printf("Account found - Balance: %s, Nonce: %d, CodeHash: %x\n",
+				acc.Balance.String(), acc.Nonce, acc.CodeHash)
+		}
+	} else {
+		fmt.Printf("No account metadata found, but checking for code directly\n")
+	}
+
+	// Return the longer of the two results
+	if len(rpcCode) > len(code) {
+		fmt.Printf("Using RPC-style result\n")
+		return rpcCode, rpcErr
+	}
+
+	fmt.Printf("Using direct CodeDomain result\n")
+	return code, err
+}*/
+
+func CheckDatabaseStateA(chainData string) error {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Check latest block info
+	headHash := rawdb.ReadHeadHeaderHash(tx)
+	fmt.Printf("Head hash: %x\n", headHash)
+
+	headNumber := rawdb.ReadHeaderNumber(tx, headHash)
+	if headNumber != nil {
+		fmt.Printf("Latest block number in DB: %d\n", *headNumber)
+
+		// Read block header for more info
+		header := rawdb.ReadHeader(tx, headHash, *headNumber)
+		if header != nil {
+			fmt.Printf("Block timestamp: %d\n", header.Time)
+			fmt.Printf("Block gas used: %d\n", header.GasUsed)
+			fmt.Printf("Block transactions root: %x\n", header.TxHash)
+		}
+	}
+
+	// Check aggregator state
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err == nil {
+		defer agg.Close()
+		if agg.OpenFolder() == nil {
+			endTxNum := agg.EndTxNumMinimax()
+			fmt.Printf("Aggregator EndTxNumMinimax: %d\n", endTxNum)
+		}
+	}
+
+	return nil
+}
+
+func GetContractCodeRawDBA(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	fmt.Printf("Trying raw database access for address %x\n", address)
+
+	// Method 1: Try to read code hash from account and then get code
+	encodedAccount, err := tx.GetOne(kv.PlainState, address[:])
+	if err != nil {
+		fmt.Printf("Error reading from PlainState: %v\n", err)
+	} else if len(encodedAccount) > 0 {
+		fmt.Printf("Found account in PlainState, length: %d\n", len(encodedAccount))
+
+		// Decode the account to get code hash
+		var acc accounts.Account
+		if err := accounts.DeserialiseV3(&acc, encodedAccount); err == nil {
+			fmt.Printf("Account - Balance: %s, Nonce: %d, CodeHash: %x\n",
+				acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+			if !acc.IsEmptyCodeHash() {
+				// Try to get code by code hash
+				code, err := tx.GetOne(kv.Code, acc.CodeHash[:])
+				if err != nil {
+					fmt.Printf("Error reading code by hash: %v\n", err)
+				} else {
+					fmt.Printf("Found code by hash, length: %d\n", len(code))
+					return code, nil
+				}
+			} else {
+				fmt.Printf("Account has empty code hash (EOA)\n")
+			}
+		} else {
+			fmt.Printf("Failed to deserialize account: %v\n", err)
+		}
+	} else {
+		fmt.Printf("No account found in PlainState\n")
+	}
+
+	// Method 2: Try deprecated HashedAccounts table
+	addressHash := crypto.Keccak256Hash(address[:])
+	fmt.Printf("Trying hashed tables with address hash %x\n", addressHash)
+
+	hashedAccount, err := tx.GetOne(kv.HashedAccountsDeprecated, addressHash[:])
+	if err != nil {
+		fmt.Printf("Error reading from HashedAccountsDeprecated: %v\n", err)
+	} else if len(hashedAccount) > 0 {
+		fmt.Printf("Found account in HashedAccountsDeprecated, length: %d\n", len(hashedAccount))
+
+		var acc accounts.Account
+		if err := accounts.DeserialiseV3(&acc, hashedAccount); err == nil {
+			fmt.Printf("Hashed Account - Balance: %s, Nonce: %d, CodeHash: %x\n",
+				acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+			if !acc.IsEmptyCodeHash() {
+				code, err := tx.GetOne(kv.Code, acc.CodeHash[:])
+				if err != nil {
+					fmt.Printf("Error reading code by hash from hashed account: %v\n", err)
+				} else {
+					fmt.Printf("Found code by hash from hashed account, length: %d\n", len(code))
+					return code, nil
+				}
+			}
+		}
+	} else {
+		fmt.Printf("No account found in HashedAccountsDeprecated\n")
+	}
+
+	// Method 3: Iterate through Code table to see what's there
+	fmt.Printf("Scanning Code table for any entries...\n")
+	codeCount := 0
+	cursor, err := tx.Cursor(kv.Code)
+	if err == nil {
+		defer cursor.Close()
+		for k, v, err := cursor.First(); k != nil && err == nil; k, v, err = cursor.Next() {
+			codeCount++
+			if codeCount <= 5 { // Show first 5 entries
+				fmt.Printf("Code entry %d: hash=%x, length=%d\n", codeCount, k[:8], len(v))
+			}
+		}
+		fmt.Printf("Total code entries found: %d\n", codeCount)
+	}
+
+	return nil, fmt.Errorf("contract code not found in raw database")
+}
+
+func GetContractCodeLikeRPC(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Set up aggregator and domains like other methods
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal database
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+	defer tdb.Close()
+
+	// Create temporal transaction like RPC daemon does
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	fmt.Printf("Using RPC-style latest state reader...\n")
+
+	// Use the same reader creation logic as RPC daemon for "latest" blocks
+	// This uses ReaderV3 which calls GetLatest() instead of GetAsOf()
+	reader := state.NewReaderV3(temporalTx)
+
+	// First check if account exists and has code (like RPC daemon does)
+	acc, err := reader.ReadAccountData(address)
+	if err != nil {
+		fmt.Printf("Error reading account data: %v\n", err)
+		return nil, err
+	}
+
+	if acc == nil {
+		fmt.Printf("Account not found\n")
+		return []byte{}, nil
+	}
+
+	fmt.Printf("Account found - Balance: %s, Nonce: %d, CodeHash: %x\n",
+		acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+	if acc.IsEmptyCodeHash() {
+		fmt.Printf("Account has empty code hash (EOA)\n")
+		return []byte{}, nil
+	}
+
+	// Read the contract code
+	code, err := reader.ReadAccountCode(address)
+	if err != nil {
+		fmt.Printf("Error reading account code: %v\n", err)
+		return nil, err
+	}
+	fmt.Printf("ReadAccountCode returned: %d bytes\n", len(code))
+
+	// If that didn't work, try direct CodeDomain access with code hash
+	if len(code) == 0 {
+		fmt.Printf("Trying direct CodeDomain access with code hash %x\n", acc.CodeHash)
+		domainCode, _, err := temporalTx.GetLatest(kv.CodeDomain, acc.CodeHash[:])
+		if err != nil {
+			fmt.Printf("Error reading from CodeDomain: %v\n", err)
+		} else {
+			fmt.Printf("CodeDomain (hash key) returned: %d bytes\n", len(domainCode))
+			if len(domainCode) > 0 {
+				code = domainCode
+			}
+		}
+
+		// Also try with address as key in CodeDomain
+		if len(code) == 0 {
+			fmt.Printf("Trying CodeDomain with address key %x\n", address)
+			addrCode, _, err := temporalTx.GetLatest(kv.CodeDomain, address[:])
+			if err != nil {
+				fmt.Printf("Error reading from CodeDomain with address: %v\n", err)
+			} else {
+				fmt.Printf("CodeDomain (address key) returned: %d bytes\n", len(addrCode))
+				if len(addrCode) > 0 {
+					code = addrCode
+				}
+			}
+		}
+	}
+
+	fmt.Printf("Final result: %d bytes\n", len(code))
+	return code, nil
+}
+
+func DebugDatabaseState(chainData string, address libcommon.Address) error {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Check raw database transaction
+	tx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	fmt.Printf("\n=== Database State Debug ===\n")
+
+	// Check execution progress vs latest block
+	executionStage, err := stages.GetStageProgress(tx, stages.Execution)
+	if err != nil {
+		fmt.Printf("Error reading execution stage: %v\n", err)
+		executionStage = 0
+	}
+	fmt.Printf("Execution stage progress: %d\n", executionStage)
+
+	// Check latest block
+	headHash := rawdb.ReadHeadHeaderHash(tx)
+	headNumber := rawdb.ReadHeaderNumber(tx, headHash)
+	if headNumber != nil {
+		fmt.Printf("Latest block: %d\n", *headNumber)
+		fmt.Printf("Execution behind by: %d blocks\n", *headNumber-executionStage)
+	}
+
+	// Check if this explains why RPC works but direct access doesn't
+	if headNumber != nil && executionStage < *headNumber {
+		fmt.Printf("FOUND THE ISSUE: Execution stage (%d) is behind latest block (%d)\n", executionStage, *headNumber)
+		fmt.Printf("RPC daemon likely uses different state access that works during sync\n")
+	}
+
+	// Set up temporal access like before
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return err
+	}
+
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return err
+	}
+	defer tdb.Close()
+
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return err
+	}
+	defer temporalTx.Rollback()
+
+	// Try to access account at different transaction numbers
+	fmt.Printf("\nTrying different access methods:\n")
+
+	// Method 1: ReaderV3 (what we've been using)
+	reader := state.NewReaderV3(temporalTx)
+	acc1, err1 := reader.ReadAccountData(address)
+	fmt.Printf("ReaderV3: acc=%v, err=%v\n", acc1 != nil, err1)
+
+	// Method 2: Try SharedDomains approach (like GetContractCodeViaState)
+	domains, err := libstate.NewSharedDomains(temporalTx, logger)
+	if err == nil {
+		defer domains.Close()
+		latestTx := domains.TxNum()
+		fmt.Printf("SharedDomains latest tx: %d\n", latestTx)
+
+		r2 := state.NewReaderV3(domains.AsGetter(temporalTx))
+		acc2, err2 := r2.ReadAccountData(address)
+		fmt.Printf("SharedDomains ReaderV3: acc=%v, err=%v\n", acc2 != nil, err2)
+	}
+
+	// Method 3: Check what transaction numbers are available
+	endTx := agg.EndTxNumMinimax()
+	fmt.Printf("Aggregator EndTxNumMinimax: %d\n", endTx)
+
+	return nil
+}
+
+func GetContractCodePlainState(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Create temporal database like RPC daemon does
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create temporal database - this is the key difference!
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+	defer tdb.Close()
+
+	temporalTx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer temporalTx.Rollback()
+
+	fmt.Printf("Using temporal database approach like RPC daemon...\n")
+
+	// Try to access account data using the temporal interface
+	// This should access plain state tables during sync
+	accData, _, err := temporalTx.GetLatest(kv.AccountsDomain, address[:])
+	if err != nil {
+		fmt.Printf("Error reading account from temporal: %v\n", err)
+		return nil, err
+	}
+
+	if len(accData) == 0 {
+		fmt.Printf("No account data found in temporal access\n")
+		return []byte{}, nil
+	}
+
+	fmt.Printf("Found account data via temporal access: %d bytes\n", len(accData))
+
+	// Deserialize account to get code hash
+	var acc accounts.Account
+	if err := accounts.DeserialiseV3(&acc, accData); err != nil {
+		fmt.Printf("Failed to deserialize account: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Account - Balance: %s, Nonce: %d, CodeHash: %x\n",
+		acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+	if acc.IsEmptyCodeHash() {
+		fmt.Printf("Account has empty code hash (EOA)\n")
+		return []byte{}, nil
+	}
+
+	// Get contract code using temporal interface
+	code, _, err := temporalTx.GetLatest(kv.CodeDomain, address[:])
+	if err != nil {
+		fmt.Printf("Error reading code from temporal: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Successfully read contract code via temporal: %d bytes\n", len(code))
+	return code, nil
+}
+
+func GetContractCodeExactRPC(chainData string, address libcommon.Address) ([]byte, error) {
+	logger := log.New()
+	db := mdbx.New(kv.ChainDB, logger).Path(chainData).Readonly(true).Accede(true).MustOpen()
+	defer db.Close()
+
+	// Create temporal database exactly like RPC
+	dirs := datadir.New(filepath.Dir(chainData))
+	agg, err := libstate.NewAggregator(context.Background(), dirs, config3.DefaultStepSize, db, logger)
+	if err != nil {
+		return nil, err
+	}
+	defer agg.Close()
+
+	err = agg.OpenFolder()
+	if err != nil {
+		return nil, err
+	}
+
+	tdb, err := temporal.New(db, agg)
+	if err != nil {
+		return nil, err
+	}
+	defer tdb.Close()
+
+	// Begin temporal transaction exactly like RPC API
+	tx, err := tdb.BeginTemporalRo(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("cannot open tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	fmt.Printf("Using exact RPC API approach...\n")
+
+	// Try to use the RPC approach but simpler - let's see if there's a simpler CreateStateReader variant
+	// Since we can't easily provide all the dependencies, let's try CreateStateReaderFromBlockNumber
+
+	// First get the current execution stage to mimic "latest"
+	rtx, err := db.BeginRo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	executionStage, err := stages.GetStageProgress(rtx, stages.Execution)
+	rtx.Rollback()
+	if err != nil {
+		executionStage = 0
+	}
+
+	fmt.Printf("Trying with execution stage block number: %d\n", executionStage)
+
+	// Use CreateStateReaderFromBlockNumber which has fewer dependencies
+	snapshotConfig := ethconfig.BlocksFreezing{
+		NoDownloader: true,
+	}
+	allSnapshots := freezeblocks.NewRoSnapshots(snapshotConfig, dirs.Snap, 0, logger)
+
+	var allBorSnapshots *heimdall.RoSnapshots
+	stateCache := kvcache.NewDummy()
+	allBorSnapshots = heimdall.NewRoSnapshots(snapshotConfig, dirs.Snap, 0, logger)
+
+	// Create BlockReader with snapshot support
+	fmt.Println("snapshot", dirs.Snap)
+	blockReader := freezeblocks.NewBlockReader(allSnapshots, allBorSnapshots)
+
+	txR := blockReader.TxnumReader(context.Background())
+	reader, err := rpchelper.CreateStateReaderFromBlockNumber(context.Background(), tx, executionStage, true, 0, stateCache, txR)
+	if err != nil {
+		fmt.Printf("Error creating state reader from block number: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Successfully created RPC-style state reader\n")
+
+	// Now follow the exact RPC logic
+	acc, err := reader.ReadAccountData(address)
+	if acc == nil || err != nil || acc.IsEmptyCodeHash() {
+		if err != nil {
+			fmt.Printf("Error reading account: %v\n", err)
+		} else if acc == nil {
+			fmt.Printf("Account is nil\n")
+		} else {
+			fmt.Printf("Account has empty code hash\n")
+		}
+		return []byte{}, nil
+	}
+
+	fmt.Printf("Account found via RPC method - Balance: %s, Nonce: %d, CodeHash: %x\n",
+		acc.Balance.String(), acc.Nonce, acc.CodeHash)
+
+	res, err := reader.ReadAccountCode(address)
+	if res == nil {
+		fmt.Printf("Code is nil\n")
+		return []byte{}, nil
+	}
+	if err != nil {
+		fmt.Printf("Error reading code: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("Successfully read contract code via exact RPC method: %d bytes\n", len(res))
+	return res, nil
 }
 
 /*

@@ -1,86 +1,79 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"os"
 
-	"erigon-transpiler-risc-v/tracer"
-
 	"github.com/erigontech/erigon-lib/common"
+	libcommon "github.com/erigontech/erigon-lib/common"
+	"github.com/erigontech/erigon/cmd/rpcdaemon/cli"
+	"github.com/erigontech/erigon/rpc"
+	"github.com/erigontech/erigon/rpc/jsonrpc"
+	"github.com/erigontech/erigon/turbo/debug"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	fmt.Println("State lookup")
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <chaindata-path>\n", os.Args[0])
+	// Use the exact same command setup as the real rpcdaemon
+	cmd, cfg := cli.RootCommand()
+	rootCtx, rootCancel := common.RootContext()
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		logger := debug.SetupCobra(cmd, "rpcdaemon")
+
+		// Initialize services exactly like the real rpcdaemon
+		db, backend, txPool, mining, stateCache, blockReader, engine, ff, bridgeReader, heimdallReader, err := cli.RemoteServices(ctx, cfg, logger, rootCancel)
+		if err != nil {
+			logger.Error("Could not connect to DB", "err", err)
+			return nil
+		}
+		defer db.Close()
+		defer engine.Close()
+		if bridgeReader != nil {
+			defer bridgeReader.Close()
+		}
+		if heimdallReader != nil {
+			defer heimdallReader.Close()
+		}
+
+		// Create the exact same API list as the real rpcdaemon
+		apiList := jsonrpc.APIList(db, backend, txPool, mining, ff, stateCache, blockReader, cfg, engine, logger, bridgeReader, heimdallReader)
+
+		// Now you have access to all the same components the RPC daemon uses
+		// You can either start the RPC server or use the components directly
+
+		// Option 1: Start RPC server (same as real rpcdaemon)
+		/*
+			if err := cli.StartRpcServer(ctx, cfg, apiList, logger); err != nil {
+				logger.Error(err.Error())
+				return nil
+			}*/
+
+		// Option 2: Use components directly for your custom logic
+		// Example: Get contract code using the same backend the RPC uses
+		ethAPI := findEthAPI(apiList)
+		address := libcommon.HexToAddress("1f98431c8ad98523631ae4a59f267346ea31f984")
+		code, err := ethAPI.GetCode(ctx, address, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
+		fmt.Println("code length", len(code))
+
+		return nil
+	}
+
+	if err := cmd.ExecuteContext(rootCtx); err != nil {
+		fmt.Printf("ExecuteContext: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	chainDataPath := os.Args[1]
-
-	fmt.Printf("Testing state database: %s\n", chainDataPath)
-	latestsBlock, err := tracer.GetLatestsBLockInStateDb(chainDataPath)
-	if err != nil {
-		panic(err)
+// Helper function to extract the ETH API from the API list
+func findEthAPI(apiList []rpc.API) *jsonrpc.APIImpl {
+	for _, api := range apiList {
+		if api.Namespace == "eth" {
+			if ethAPI, ok := api.Service.(*jsonrpc.APIImpl); ok {
+				return ethAPI
+			}
+		}
 	}
-	fmt.Println("latests block", latestsBlock)
-	bytes, err := hex.DecodeString("1f98431c8ad98523631ae4a59f267346ea31f984")
-	if err != nil {
-		panic(err)
-	}
-	contractCode, err := tracer.GetContractCodeViaState(chainDataPath, common.BytesToAddress(bytes))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(contractCode)
-	contractCodeV3, err := tracer.GetContractCodeWithReaderV3(chainDataPath, common.BytesToAddress(bytes))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(contractCodeV3)
-
-	//err = tracer.GetLatestsTransactionInfo(chainDataPath)
-	//fmt.Println(err)
-	/*
-		fmt.Printf("Testing state database: %s\n", chainDataPath)
-
-		state, err := tracer.NewStateDbAA(chainDataPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Failed: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("✅ Success! State database loaded.\n")
-
-		// Test a well-known address - Ethereum Foundation donation address
-		a, err := hex.DecodeString("9c33eacc2f50e39940d3afaf2c7b8246b681a374")
-		if err != nil {
-			fmt.Println("Bad hex decode")
-			os.Exit(1)
-		}
-		addr := common.Address(common.BytesToAddress(a))
-
-		balance, err := state.GetBalance(addr)
-		if err != nil {
-			fmt.Printf("Error getting balance: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Address %s balance: %s\n", addr.Hex(), balance.String())
-
-		nonce, err := state.GetNonce(addr)
-		if err != nil {
-			fmt.Printf("Error getting nonce: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Address nonce: %d\n", nonce)
-
-		code, err := state.GetCode(addr)
-		if err != nil {
-			fmt.Printf("Error getting code: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Address code: %d\n", code)
-	*/
+	return nil
 }
