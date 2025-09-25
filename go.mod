@@ -13,16 +13,20 @@ replace (
 require (
 	github.com/alexflint/go-arg v1.6.0
 	github.com/erigontech/erigon v0.0.0-00010101000000-000000000000
+	github.com/erigontech/erigon-db v0.0.0-00010101000000-000000000000
 	github.com/erigontech/erigon-lib v0.0.0-00010101000000-000000000000
 	github.com/holiman/uint256 v1.3.2
+	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0
 	github.com/unicorn-engine/unicorn v0.0.0-20250410153552-f8c6db950420
 )
 
 require (
+	github.com/99designs/gqlgen v0.17.66 // indirect
 	github.com/FastFilter/xorfilter v0.2.1 // indirect
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/RoaringBitmap/roaring/v2 v2.9.0 // indirect
+	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/ajwerner/btree v0.0.0-20211221152037-f427b3e689c0 // indirect
 	github.com/alecthomas/atomic v0.1.0-alpha2 // indirect
 	github.com/alexflint/go-scalar v1.2.0 // indirect
@@ -62,13 +66,14 @@ require (
 	github.com/deckarep/golang-set v1.8.0 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
+	github.com/dlclark/regexp2 v1.4.1-0.20201116162257-a2a8dda75c91 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/dop251/goja v0.0.0-20220405120441-9037c2b61cbf // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/edsrzf/mmap-go v1.2.0 // indirect
 	github.com/elastic/go-freelru v0.16.0 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/erigontech/erigon-db v0.0.0-00010101000000-000000000000 // indirect
 	github.com/erigontech/erigon-snapshot v1.3.1-0.20250718024755-5b6d5407844d // indirect
 	github.com/erigontech/mdbx-go v0.39.8 // indirect
 	github.com/erigontech/secp256k1 v1.2.0 // indirect
@@ -82,8 +87,10 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
 	github.com/goccy/go-json v0.9.11 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
@@ -176,9 +183,9 @@ require (
 	github.com/shirou/gopsutil/v4 v4.24.8 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sosodev/duration v1.3.1 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.9.5 // indirect
-	github.com/spf13/cobra v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e // indirect
 	github.com/tidwall/btree v1.6.0 // indirect
@@ -187,6 +194,7 @@ require (
 	github.com/ugorji/go/codec v1.2.13 // indirect
 	github.com/urfave/cli/v2 v2.27.5 // indirect
 	github.com/valyala/fastjson v1.6.4 // indirect
+	github.com/vektah/gqlparser/v2 v2.5.27 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/xsleonard/go-merkle v1.1.0 // indirect

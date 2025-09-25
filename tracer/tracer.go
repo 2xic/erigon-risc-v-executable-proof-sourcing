@@ -80,9 +80,12 @@ type StateTracer struct {
 }
 
 func NewStateTracer() *StateTracer {
-	return &StateTracer{
+	tracer := &StateTracer{
 		jumpTable: nil,
 	}
+	// Set Hooks to point to itself since StateTracer implements vm.EVMLogger
+	// tracer.Hooks = tracer
+	return tracer
 }
 
 func (t *StateTracer) setJumpTable(jt *vm.JumpTable) {
@@ -142,6 +145,11 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 		Arguments:     arguments,
 		StackSnapshot: snapshot,
 	})
+}
+
+// GetInstructions returns all captured instructions
+func (t *StateTracer) GetInstructions() []*EvmInstructionMetadata {
+	return t.evmInstructions
 }
 
 // =============================================================================
