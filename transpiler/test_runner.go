@@ -73,6 +73,6 @@ func (t *TestRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) 
 		}
 	}
 
-	assembly := transpiler.toAssembly()
+	assembly := transpiler.ToAssembly()
 	return assembly, &snapshot, nil
 }

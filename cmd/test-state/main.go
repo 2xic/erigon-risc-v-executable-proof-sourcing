@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"erigon-transpiler-risc-v/prover"
+	"erigon-transpiler-risc-v/tracer"
+	"erigon-transpiler-risc-v/transpiler"
 	"fmt"
 	"os"
 
@@ -42,16 +46,57 @@ func newTracer(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers
 	}, nil
 }
 
+type StructMinimalResults struct {
+	AppVK string
+}
+
+func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+	newTracer := tracer.NewStateTracer()
+	return &tracers.Tracer{
+		Hooks: newTracer.Hooks(),
+		Stop: func(err error) {
+			fmt.Println(err.Error())
+		},
+		GetResult: func() (json.RawMessage, error) {
+			transpiler := transpiler.NewTranspiler()
+			instructions := newTracer.GetInstructions()
+			executionState := newTracer.GetExecutionState()
+			for i := range instructions {
+				transpiler.AddInstruction(instructions[i], executionState)
+			}
+			assembly := transpiler.ToAssembly()
+			content, err := assembly.ToToolChainCompatibleAssembly()
+			if err != nil {
+				return nil, err
+			}
+			zkVm := prover.NewZkProver(content)
+			output, err := zkVm.Prove()
+			if err != nil {
+				return nil, err
+			}
+			data, err := json.Marshal(StructMinimalResults{
+				AppVK: hex.EncodeToString(output.AppVK),
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return data, nil
+		},
+	}, nil
+}
+
 func main() {
-	// Use the exact same command setup as the real rpcdaemon
 	cmd, cfg := cli.RootCommand()
 	rootCtx, rootCancel := common.RootContext()
+
+	var txHash string
+	cmd.Flags().StringVar(&txHash, "tx-hash", "04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
+	// cmd.MarkFlagRequired("tx-hash")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := debug.SetupCobra(cmd, "rpcdaemon")
-
-		// Initialize services exactly like the real rpcdaemon
 		db, backend, txPool, mining, stateCache, blockReader, engine, ff, bridgeReader, heimdallReader, err := cli.RemoteServices(ctx, cfg, logger, rootCancel)
 		if err != nil {
 			logger.Error("Could not connect to DB", "err", err)
@@ -66,46 +111,29 @@ func main() {
 			defer heimdallReader.Close()
 		}
 
-		// Create the exact same API list as the real rpcdaemon
 		apiList := jsonrpc.APIList(db, backend, txPool, mining, ff, stateCache, blockReader, cfg, engine, logger, bridgeReader, heimdallReader)
-
-		// Now you have access to all the same components the RPC daemon uses
-		// You can either start the RPC server or use the components directly
-
-		// Option 1: Start RPC server (same as real rpcdaemon)
-		/*
-			if err := cli.StartRpcServer(ctx, cfg, apiList, logger); err != nil {
-				logger.Error(err.Error())
-				return nil
-			}*/
-
-		// Option 2: Use components directly for your custom logic
-		// Example: Get contract code using the same backend the RPC uses
-		ethAPI := findEthAPI(apiList)
-		address := libcommon.HexToAddress("1f98431c8ad98523631ae4a59f267346ea31f984")
-		code, err := ethAPI.GetCode(ctx, address, rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber))
-		fmt.Println("code length", len(code))
-
-		debugAPI := findDebug(apiList)
-
 		var buf bytes.Buffer
 		stream := jsonstream.New(&buf)
+		debugAPI := findDebug(apiList)
 
-		tracers.RegisterLookup(true, newTracer)
-
-		tracer := "bagel"
+		tracers.RegisterLookup(true, newTracerHooks)
+		tracer := "Mine"
+		timeout := "10h"
 		err = debugAPI.TraceTransaction(
 			context.Background(),
-			libcommon.HexToHash("04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2"),
+			libcommon.HexToHash(txHash),
 			&config.TraceConfig{
-				Tracer: &tracer,
+				Tracer:  &tracer,
+				Timeout: &timeout,
 			},
 			stream,
 		)
-		//		fmt.Println("code length", len(debug.trace))
 		if err != nil {
 			fmt.Println("failed to do trace", err.Error())
 		}
+
+		fmt.Println("Results: ", buf.String())
+		os.Exit(0)
 
 		return nil
 	}
@@ -114,22 +142,8 @@ func main() {
 		fmt.Printf("ExecuteContext: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("peace out")
 }
 
-// Helper function to extract the ETH API from the API list
-func findEthAPI(apiList []rpc.API) *jsonrpc.APIImpl {
-	for _, api := range apiList {
-		if api.Namespace == "eth" {
-			if ethAPI, ok := api.Service.(*jsonrpc.APIImpl); ok {
-				return ethAPI
-			}
-		}
-	}
-	return nil
-}
-
-// Helper function to extract the ETH API from the API list
 func findDebug(apiList []rpc.API) *jsonrpc.DebugAPIImpl {
 	for _, api := range apiList {
 		if api.Namespace == "debug" {

@@ -269,6 +269,24 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 	case vm.INVALID:
 		// TODO: set a return code?
 		return
+	case vm.CALLER:
+		// TODO: dummy value, should return CALLER
+		value, err := uint256.FromHex("0xdeadbeef")
+		if err != nil {
+			panic(err)
+		}
+		varName := tr.dataSection.Add(value)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.KECCAK256:
+		// TODO: dummy value, should return CALLER
+		value, err := uint256.FromHex("0xdeadbeef")
+		if err != nil {
+			panic(err)
+		}
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		varName := tr.dataSection.Add(value)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.MCOPY:
 		// Pop arguments and get parameters
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -595,7 +613,7 @@ func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
 	return instructions
 }
 
-func (tr *transpiler) toAssembly() *prover.AssemblyFile {
+func (tr *transpiler) ToAssembly() *prover.AssemblyFile {
 	// Convert data section to prover format
 	dataSection := make([]prover.DataVariable, 0)
 	for _, dataVar := range tr.dataSection.Iter() {

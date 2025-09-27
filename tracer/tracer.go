@@ -1,6 +1,7 @@
 package tracer
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -99,6 +100,7 @@ func (t *StateTracer) CaptureTxStart(vm *tracing.VMContext, tx types.Transaction
 }
 func (t *StateTracer) CaptureTxEnd(receipt *types.Receipt, err error) {}
 func (t *StateTracer) CaptureEnter(depth int, typ byte, from libcommon.Address, to libcommon.Address, precompile bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+	fmt.Println("depth ", depth)
 }
 func (t *StateTracer) CaptureExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
 }
@@ -107,7 +109,7 @@ func (t *StateTracer) CaptureFault(pc uint64, op byte, gas, cost uint64, scope t
 
 func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	stackData := scope.StackData()
-	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, vm.OpCode(op).String(), gas, len(stackData))
+	fmt.Println("PC:%d %s Gas:%d len(Stack):%d", pc, vm.OpCode(op).String(), gas, len(stackData))
 
 	arguments := []byte{}
 	opCode := vm.OpCode(op)
@@ -150,6 +152,21 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 // GetInstructions returns all captured instructions
 func (t *StateTracer) GetInstructions() []*EvmInstructionMetadata {
 	return t.evmInstructions
+}
+
+func (t *StateTracer) GetExecutionState() *EvmExecutionState {
+	return t.executionState
+}
+
+func (t *StateTracer) Hooks() *tracing.Hooks {
+	return &tracing.Hooks{
+		OnOpcode:  t.CaptureState,
+		OnTxStart: t.CaptureTxStart,
+		OnTxEnd:   t.CaptureTxEnd,
+		OnEnter:   t.CaptureEnter,
+		OnExit:    t.CaptureExit,
+		OnFault:   t.CaptureFault,
+	}
 }
 
 // =============================================================================
@@ -196,14 +213,7 @@ func NewSimpleTracer() *SimpleTracer {
 	tracer.chainId = new(uint256.Int)
 	tracer.chainId.SetFromBig(chainConfig.ChainID)
 
-	hooks := &tracing.Hooks{
-		OnOpcode:  tracer.CaptureState,
-		OnTxStart: tracer.CaptureTxStart,
-		OnTxEnd:   tracer.CaptureTxEnd,
-		OnEnter:   tracer.CaptureEnter,
-		OnExit:    tracer.CaptureExit,
-		OnFault:   tracer.CaptureFault,
-	}
+	hooks := tracer.Hooks()
 	vmConfig := vm.Config{
 		Tracer: hooks,
 	}
