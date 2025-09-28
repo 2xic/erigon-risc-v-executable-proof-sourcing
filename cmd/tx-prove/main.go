@@ -63,8 +63,9 @@ func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tr
 			transpiler := transpiler.NewTranspiler()
 			instructions := newTracer.GetInstructions()
 			executionState := newTracer.GetExecutionState()
-			for i := range instructions {
-				transpiler.AddInstruction(instructions[i], executionState)
+			_, err := transpiler.ProcessExecution(instructions, executionState)
+			if err != nil {
+				return nil, err
 			}
 			assembly := transpiler.ToAssembly()
 			content, err := assembly.ToToolChainCompatibleAssembly()
@@ -72,7 +73,7 @@ func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tr
 				return nil, err
 			}
 			zkVm := prover.NewZkProver(content)
-			output, err := zkVm.StarkProve()
+			output, err := zkVm.Prove()
 			if err != nil {
 				return nil, err
 			}

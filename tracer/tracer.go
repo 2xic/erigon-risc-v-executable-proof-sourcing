@@ -1,7 +1,6 @@
 package tracer
 
 import (
-	"fmt"
 	"math/big"
 	"strings"
 
@@ -23,6 +22,7 @@ type EvmExecutionState struct {
 	CodeData  []byte
 	Gas       *uint256.Int
 	Address   libcommon.Address
+	Caller    libcommon.Address
 	Timestamp *uint256.Int
 	ChainId   *uint256.Int
 	CodeSizes map[libcommon.Address]uint64
@@ -32,6 +32,7 @@ type EvmInstructionMetadata struct {
 	Opcode        vm.OpCode
 	Arguments     []byte
 	StackSnapshot []uint256.Int
+	Result        *uint256.Int // Stores the result of operations like KECCAK256
 }
 
 // =============================================================================
@@ -100,7 +101,6 @@ func (t *StateTracer) CaptureTxStart(vm *tracing.VMContext, tx types.Transaction
 }
 func (t *StateTracer) CaptureTxEnd(receipt *types.Receipt, err error) {}
 func (t *StateTracer) CaptureEnter(depth int, typ byte, from libcommon.Address, to libcommon.Address, precompile bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
-	fmt.Println("depth ", depth)
 }
 func (t *StateTracer) CaptureExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
 }
@@ -109,7 +109,6 @@ func (t *StateTracer) CaptureFault(pc uint64, op byte, gas, cost uint64, scope t
 
 func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	stackData := scope.StackData()
-	fmt.Println("PC:%d %s Gas:%d len(Stack):%d", pc, vm.OpCode(op).String(), gas, len(stackData))
 
 	arguments := []byte{}
 	opCode := vm.OpCode(op)
@@ -137,6 +136,7 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 		CodeData:  scope.Code(),
 		Gas:       uint256.NewInt(gas),
 		Address:   scope.Address(),
+		Caller:    scope.Caller(),
 		Timestamp: uint256.NewInt(t.blockTime),
 		ChainId:   t.chainId,
 		CodeSizes: codeSizes,

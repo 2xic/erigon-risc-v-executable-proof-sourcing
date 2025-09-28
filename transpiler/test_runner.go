@@ -62,16 +62,7 @@ func (t *TestRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) 
 		return nil, nil, err
 	}
 	transpiler := NewTranspiler()
-	snapshot := EvmStackSnapshot{
-		Snapshots: make([][]uint256.Int, 0),
-	}
-
-	for i := range instructions {
-		transpiler.AddInstruction(instructions[i], executionState)
-		if i > 0 {
-			snapshot.Snapshots = append(snapshot.Snapshots, instructions[i].StackSnapshot)
-		}
-	}
+	snapshot := transpiler.ProcessExecution(instructions, executionState)
 
 	assembly := transpiler.ToAssembly()
 	return assembly, &snapshot, nil

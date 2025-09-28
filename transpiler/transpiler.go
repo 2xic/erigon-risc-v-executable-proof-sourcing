@@ -28,7 +28,30 @@ func NewTranspiler() *transpiler {
 	}
 }
 
+func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMetadata, executionState *tracer.EvmExecutionState) (EvmStackSnapshot, error) {
+	snapshot := EvmStackSnapshot{
+		Snapshots: make([][]uint256.Int, 0),
+	}
+
+	for i := range instructions {
+		var resultStack []uint256.Int
+		if i+1 < len(instructions) {
+			resultStack = instructions[i+1].StackSnapshot
+		}
+
+		tr.AddInstructionWithResult(instructions[i], executionState, resultStack)
+		if i > 0 {
+			snapshot.Snapshots = append(snapshot.Snapshots, instructions[i].StackSnapshot)
+		}
+	}
+	return snapshot, nil
+}
+
 func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) {
+	tr.AddInstructionWithResult(op, state, nil)
+}
+
+func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack []uint256.Int) {
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, tr.add256Call()...)
@@ -270,22 +293,19 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 		// TODO: set a return code?
 		return
 	case vm.CALLER:
-		// TODO: dummy value, should return CALLER
-		value, err := uint256.FromHex("0xdeadbeef")
-		if err != nil {
-			panic(err)
-		}
-		varName := tr.dataSection.Add(value)
+		callerBytes := state.Caller.Bytes()
+		callerValue := new(uint256.Int).SetBytes(callerBytes)
+		varName := tr.dataSection.Add(callerValue)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.KECCAK256:
-		// TODO: dummy value, should return CALLER
-		value, err := uint256.FromHex("0xdeadbeef")
-		if err != nil {
-			panic(err)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		if resultStack == nil || len(resultStack) == 0 {
+			panic(fmt.Errorf("Should have a result stack"))
 		}
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		varName := tr.dataSection.Add(value)
+		hashResult := resultStack[len(resultStack)-1]
+		varName := tr.dataSection.Add(&hashResult)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.MCOPY:
 		// Pop arguments and get parameters

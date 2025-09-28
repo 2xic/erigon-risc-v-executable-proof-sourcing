@@ -159,6 +159,21 @@ func TestSimpleOpcodes(t *testing.T) {
 			bytecode: []byte{byte(vm.ADDRESS)},
 		},
 		{
+			name:     "CALLER",
+			bytecode: []byte{byte(vm.CALLER)},
+		},
+		{
+			name: "KECCAK256",
+			bytecode: []byte{
+				byte(vm.PUSH1), 0x42,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.MSTORE),
+				byte(vm.PUSH1), 0x20,
+				byte(vm.PUSH1), 0x00,
+				byte(vm.KECCAK256),
+			},
+		},
+		{
 			name:     "TIMESTAMP",
 			bytecode: []byte{byte(vm.TIMESTAMP)},
 		},
