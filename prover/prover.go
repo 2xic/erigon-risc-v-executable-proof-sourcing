@@ -3,6 +3,8 @@ package prover
 import (
 	"bytes"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -81,6 +83,16 @@ type ProofGeneration struct {
 	Proof  []byte
 	AppVK  []byte
 	Stdout string
+}
+
+type VerificationResult struct {
+	Stdout string
+	Valid  bool
+}
+
+type ResultsFile struct {
+	AppVK string `json:"AppVK"`
+	Proof string `json:"Proof"`
 }
 
 func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
@@ -170,6 +182,61 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 	}
 
 	return executionOutput, nil
+}
+
+func VerifyFromResults(resultsPath string) (VerificationResult, error) {
+	if resultsPath == "" {
+		resultsPath = "results.json"
+	}
+
+	resultsData, err := os.ReadFile(resultsPath)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to read results file", err)
+	}
+
+	var results ResultsFile
+	if err := json.Unmarshal(resultsData, &results); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to parse results file", err)
+	}
+
+	appVKBytes, err := hex.DecodeString(results.AppVK)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to decode AppVK hex", err)
+	}
+
+	proofBytes, err := hex.DecodeString(results.Proof)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to decode Proof hex", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "openvm-verify-*")
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to create temp directory", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	appVKPath := filepath.Join(tmpDir, "app.vk")
+	if err := os.WriteFile(appVKPath, appVKBytes, 0644); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to write app.vk file", err)
+	}
+
+	proofPath := filepath.Join(tmpDir, "proof.app.proof")
+	if err := os.WriteFile(proofPath, proofBytes, 0644); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to write proof file", err)
+	}
+
+	cli := NewCli(tmpDir)
+	output, err := cli.Execute("cargo", "openvm", "verify", "app", "--app-vk", appVKPath, "--proof", proofPath)
+	result := VerificationResult{
+		Stdout: output,
+		Valid:  err == nil,
+	}
+
+	if err != nil {
+		return result, NewZkProverError("verification failed", err)
+	}
+
+	return result, nil
 }
 
 func (zkVm *ZkProver) SetupExecution() (*Cli, error) {

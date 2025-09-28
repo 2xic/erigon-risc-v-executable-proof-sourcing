@@ -3,7 +3,7 @@
 lint: lint-go lint-rust
 	echo "done"
 
-build: bins/evm-prove bins/tx-prove
+build: bins/evm-prove bins/tx-prove bins/proof-verify
 
 bins/evm-prove: cmd/evm-prove/main.go
 	@mkdir -p bins
@@ -12,6 +12,10 @@ bins/evm-prove: cmd/evm-prove/main.go
 bins/tx-prove: cmd/tx-prove/main.go
 	@mkdir -p bins
 	go build -p 4 -o bins/tx-prove ./cmd/tx-prove
+
+bins/proof-verify: cmd/proof-verify/main.go
+	@mkdir -p bins
+	go build -o bins/proof-verify ./cmd/proof-verify
 
 clean:
 	rm -rf bins

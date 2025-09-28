@@ -47,11 +47,6 @@ func newTracer(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers
 	}, nil
 }
 
-type StructMinimalResults struct {
-	AppVK string
-	Proof string
-}
-
 func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
 	newTracer := tracer.NewStateTracer()
 	return &tracers.Tracer{
@@ -77,7 +72,7 @@ func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tr
 			if err != nil {
 				return nil, err
 			}
-			data, err := json.Marshal(StructMinimalResults{
+			data, err := json.Marshal(prover.ResultsFile{
 				Proof: hex.EncodeToString(output.Proof),
 				AppVK: hex.EncodeToString(output.AppVK),
 			})
@@ -95,7 +90,9 @@ func main() {
 	rootCtx, rootCancel := common.RootContext()
 
 	var txHash string
+	var outputFile string
 	cmd.Flags().StringVar(&txHash, "tx-hash", "04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
+	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
 	// cmd.MarkFlagRequired("tx-hash")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -137,7 +134,18 @@ func main() {
 			fmt.Println("failed to do trace", err.Error())
 		}
 
-		fmt.Println("Results: ", buf.String())
+		// Output results to file or stdout
+		results := buf.String()
+		if outputFile != "" {
+			err := os.WriteFile(outputFile, []byte(results), 0644)
+			if err != nil {
+				fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
+				return err
+			}
+			fmt.Printf("Results written to: %s\n", outputFile)
+		} else {
+			fmt.Println("Results: ", results)
+		}
 		os.Exit(0)
 
 		return nil
