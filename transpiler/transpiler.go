@@ -304,7 +304,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if resultStack == nil || len(resultStack) == 0 {
+		if len(resultStack) == 0 {
 			return fmt.Errorf("KECCAK256 requires result stack but none provided")
 		}
 		hashResult := resultStack[len(resultStack)-1]
