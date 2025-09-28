@@ -39,7 +39,10 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 			resultStack = instructions[i+1].StackSnapshot
 		}
 
-		tr.AddInstructionWithResult(instructions[i], executionState, resultStack)
+		err := tr.AddInstructionWithResult(instructions[i], executionState, resultStack)
+		if err != nil {
+			return snapshot, err
+		}
 		if i > 0 {
 			snapshot.Snapshots = append(snapshot.Snapshots, instructions[i].StackSnapshot)
 		}
@@ -47,11 +50,11 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 	return snapshot, nil
 }
 
-func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) {
-	tr.AddInstructionWithResult(op, state, nil)
+func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) error {
+	return tr.AddInstructionWithResult(op, state, nil)
 }
 
-func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack []uint256.Int) {
+func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack []uint256.Int) error {
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, tr.add256Call()...)
@@ -276,22 +279,22 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.STOP:
 		// no operation opcode
-		return
+		return nil
 	case vm.RETURN:
 		// Pop offset and size from stack, return normally
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		// TODO: set a return code?
-		return
+		return nil
 	case vm.REVERT:
 		// Pop offset and size from stack, return with revert status
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		return
+		return nil
 		// TODO: set a return code?
 	case vm.INVALID:
 		// TODO: set a return code?
-		return
+		return nil
 	case vm.CALLER:
 		callerBytes := state.Caller.Bytes()
 		callerValue := new(uint256.Int).SetBytes(callerBytes)
@@ -302,7 +305,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
 		if resultStack == nil || len(resultStack) == 0 {
-			panic(fmt.Errorf("Should have a result stack"))
+			return fmt.Errorf("KECCAK256 requires result stack but none provided")
 		}
 		hashResult := resultStack[len(resultStack)-1]
 		varName := tr.dataSection.Add(&hashResult)
@@ -319,13 +322,15 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
 	default:
-		panic(fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode)))
+		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
 	}
 	// TODO: only add this for testing, not production.
 	tr.instructions = append(tr.instructions, prover.Instruction{
 		Name:     "EBREAK",
 		Operands: []string{},
 	})
+
+	return nil
 }
 
 func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {

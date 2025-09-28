@@ -62,7 +62,10 @@ func (t *TestRunner) Execute() (*prover.AssemblyFile, *EvmStackSnapshot, error) 
 		return nil, nil, err
 	}
 	transpiler := NewTranspiler()
-	snapshot := transpiler.ProcessExecution(instructions, executionState)
+	snapshot, err := transpiler.ProcessExecution(instructions, executionState)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	assembly := transpiler.ToAssembly()
 	return assembly, &snapshot, nil
