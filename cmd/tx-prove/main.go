@@ -14,6 +14,7 @@ import (
 	"github.com/erigontech/erigon-lib/common"
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/jsonstream"
+	"github.com/erigontech/erigon-lib/log/v3"
 	"github.com/erigontech/erigon/cmd/rpcdaemon/cli"
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/eth/tracers"
@@ -48,6 +49,7 @@ func newTracer(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers
 
 type StructMinimalResults struct {
 	AppVK string
+	Proof string
 }
 
 func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
@@ -70,11 +72,12 @@ func newTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tr
 				return nil, err
 			}
 			zkVm := prover.NewZkProver(content)
-			output, err := zkVm.Prove()
+			output, err := zkVm.StarkProve()
 			if err != nil {
 				return nil, err
 			}
 			data, err := json.Marshal(StructMinimalResults{
+				Proof: hex.EncodeToString(output.Proof),
 				AppVK: hex.EncodeToString(output.AppVK),
 			})
 			if err != nil {
@@ -97,6 +100,7 @@ func main() {
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := debug.SetupCobra(cmd, "rpcdaemon")
+		logger.Enabled(ctx, log.LvlCrit)
 		db, backend, txPool, mining, stateCache, blockReader, engine, ff, bridgeReader, heimdallReader, err := cli.RemoteServices(ctx, cfg, logger, rootCancel)
 		if err != nil {
 			logger.Error("Could not connect to DB", "err", err)

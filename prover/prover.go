@@ -112,6 +112,41 @@ func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
 	return results, nil
 }
 
+func (zkVm *ZkProver) StarkProve() (ProofGeneration, error) {
+	workSpace, err := setupWorkspace([]byte(zkVm.content))
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to setup workspace", err)
+	}
+
+	cli := NewCli(workSpace)
+	_, err = cli.Execute("cargo", "openvm", "setup")
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
+	}
+
+	output, err := cli.Execute("cargo", "openvm", "prove", "stark")
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
+	}
+
+	proof, err := cli.readFile("prover.stark.proof")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+	appVk, err := os.ReadFile("/root/.openvm/agg_stark.vk")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+
+	results := ProofGeneration{
+		Proof:  proof,
+		AppVK:  appVk,
+		Stdout: output,
+	}
+
+	return results, nil
+}
+
 func (zkVm *ZkProver) TestRun() (string, error) {
 	cli, err := zkVm.SetupExecution()
 	if err != nil {
