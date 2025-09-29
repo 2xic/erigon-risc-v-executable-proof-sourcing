@@ -1,11 +1,8 @@
 package tracer
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"erigon-transpiler-risc-v/prover"
-	"erigon-transpiler-risc-v/tracer"
-	"erigon-transpiler-risc-v/transpiler"
 	"fmt"
 	"math/big"
 	"strings"
@@ -272,40 +269,25 @@ func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash)
 }
 
 // Signature to match RegisterLookup
-func NewTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
-	newTracer := tracer.NewStateTracer()
-	return &tracers.Tracer{
-		Hooks: newTracer.Hooks(),
-		Stop: func(err error) {
-			fmt.Println(err.Error())
-		},
-		GetResult: func() (json.RawMessage, error) {
-			transpiler := transpiler.NewTranspiler()
-			instructions := newTracer.GetInstructions()
-			executionState := newTracer.GetExecutionState()
-			_, err := transpiler.ProcessExecution(instructions, executionState)
-			if err != nil {
-				return nil, err
-			}
-			assembly := transpiler.ToAssembly()
-			content, err := assembly.ToToolChainCompatibleAssembly()
-			if err != nil {
-				return nil, err
-			}
-			zkVm := prover.NewZkProver(content)
-			output, err := zkVm.Prove()
-			if err != nil {
-				return nil, err
-			}
-			data, err := json.Marshal(prover.ResultsFile{
-				Proof: hex.EncodeToString(output.Proof),
-				AppVK: hex.EncodeToString(output.AppVK),
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			return data, nil
-		},
-	}, nil
+func NewTracerHooks(createResults func(newTracer *StateTracer) (*prover.ProofGeneration, error)) func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+	return func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+		newTracer := NewStateTracer()
+		return &tracers.Tracer{
+			Hooks: newTracer.Hooks(),
+			Stop: func(err error) {
+				fmt.Println(err.Error())
+			},
+			GetResult: func() (json.RawMessage, error) {
+				results, err := createResults(newTracer)
+				if err != nil {
+					return nil, err
+				}
+				data, err := json.Marshal(results)
+				if err != nil {
+					return nil, err
+				}
+				return data, nil
+			},
+		}, nil
+	}
 }

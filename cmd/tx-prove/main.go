@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
+	"erigon-transpiler-risc-v/transpiler"
 	"fmt"
 	"os"
 
@@ -52,7 +54,30 @@ func main() {
 		stream := jsonstream.New(&buf)
 		debugAPI := findDebug(apiList)
 
-		tracers.RegisterLookup(true, tracer.NewTracerHooks)
+		customTracer := tracer.NewTracerHooks(
+			func(newTracer *tracer.StateTracer) (*prover.ProofGeneration, error) {
+				transpiler := transpiler.NewTranspiler()
+				instructions := newTracer.GetInstructions()
+				executionState := newTracer.GetExecutionState()
+				_, err := transpiler.ProcessExecution(instructions, executionState)
+				if err != nil {
+					return nil, err
+				}
+				assembly := transpiler.ToAssembly()
+				content, err := assembly.ToToolChainCompatibleAssembly()
+				if err != nil {
+					return nil, err
+				}
+				zkVm := prover.NewZkProver(content)
+				output, err := zkVm.Prove()
+				if err != nil {
+					return nil, err
+				}
+				return &output, nil
+			},
+		)
+
+		tracers.RegisterLookup(true, customTracer)
 		tracer := "Mine"
 		timeout := "10h"
 		err = debugAPI.TraceTransaction(
