@@ -1,6 +1,12 @@
 package tracer
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"erigon-transpiler-risc-v/prover"
+	"erigon-transpiler-risc-v/tracer"
+	"erigon-transpiler-risc-v/transpiler"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -13,6 +19,7 @@ import (
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
+	"github.com/erigontech/erigon/eth/tracers"
 	"github.com/holiman/uint256"
 )
 
@@ -262,4 +269,43 @@ func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash)
 	var value uint256.Int
 	err := tr.state.GetState(addr, &key, &value)
 	return &value, err
+}
+
+// Signature to match RegisterLookup
+func NewTracerHooks(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+	newTracer := tracer.NewStateTracer()
+	return &tracers.Tracer{
+		Hooks: newTracer.Hooks(),
+		Stop: func(err error) {
+			fmt.Println(err.Error())
+		},
+		GetResult: func() (json.RawMessage, error) {
+			transpiler := transpiler.NewTranspiler()
+			instructions := newTracer.GetInstructions()
+			executionState := newTracer.GetExecutionState()
+			_, err := transpiler.ProcessExecution(instructions, executionState)
+			if err != nil {
+				return nil, err
+			}
+			assembly := transpiler.ToAssembly()
+			content, err := assembly.ToToolChainCompatibleAssembly()
+			if err != nil {
+				return nil, err
+			}
+			zkVm := prover.NewZkProver(content)
+			output, err := zkVm.Prove()
+			if err != nil {
+				return nil, err
+			}
+			data, err := json.Marshal(prover.ResultsFile{
+				Proof: hex.EncodeToString(output.Proof),
+				AppVK: hex.EncodeToString(output.AppVK),
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return data, nil
+		},
+	}, nil
 }
