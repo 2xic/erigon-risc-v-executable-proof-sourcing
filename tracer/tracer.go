@@ -1,6 +1,9 @@
 package tracer
 
 import (
+	"encoding/json"
+	"erigon-transpiler-risc-v/prover"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/erigontech/erigon/core/tracing"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
+	"github.com/erigontech/erigon/eth/tracers"
 	"github.com/holiman/uint256"
 )
 
@@ -22,6 +26,7 @@ type EvmExecutionState struct {
 	CodeData  []byte
 	Gas       *uint256.Int
 	Address   libcommon.Address
+	Caller    libcommon.Address
 	Timestamp *uint256.Int
 	ChainId   *uint256.Int
 	CodeSizes map[libcommon.Address]uint64
@@ -31,6 +36,7 @@ type EvmInstructionMetadata struct {
 	Opcode        vm.OpCode
 	Arguments     []byte
 	StackSnapshot []uint256.Int
+	Result        *uint256.Int // Stores the result of operations like KECCAK256
 }
 
 // =============================================================================
@@ -80,9 +86,12 @@ type StateTracer struct {
 }
 
 func NewStateTracer() *StateTracer {
-	return &StateTracer{
+	tracer := &StateTracer{
 		jumpTable: nil,
 	}
+	// Set Hooks to point to itself since StateTracer implements vm.EVMLogger
+	// tracer.Hooks = tracer
+	return tracer
 }
 
 func (t *StateTracer) setJumpTable(jt *vm.JumpTable) {
@@ -104,7 +113,6 @@ func (t *StateTracer) CaptureFault(pc uint64, op byte, gas, cost uint64, scope t
 
 func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	stackData := scope.StackData()
-	log.Debug("PC:%d %s Gas:%d len(Stack):%d", pc, vm.OpCode(op).String(), gas, len(stackData))
 
 	arguments := []byte{}
 	opCode := vm.OpCode(op)
@@ -132,6 +140,7 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 		CodeData:  scope.Code(),
 		Gas:       uint256.NewInt(gas),
 		Address:   scope.Address(),
+		Caller:    scope.Caller(),
 		Timestamp: uint256.NewInt(t.blockTime),
 		ChainId:   t.chainId,
 		CodeSizes: codeSizes,
@@ -142,6 +151,26 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 		Arguments:     arguments,
 		StackSnapshot: snapshot,
 	})
+}
+
+// GetInstructions returns all captured instructions
+func (t *StateTracer) GetInstructions() []*EvmInstructionMetadata {
+	return t.evmInstructions
+}
+
+func (t *StateTracer) GetExecutionState() *EvmExecutionState {
+	return t.executionState
+}
+
+func (t *StateTracer) Hooks() *tracing.Hooks {
+	return &tracing.Hooks{
+		OnOpcode:  t.CaptureState,
+		OnTxStart: t.CaptureTxStart,
+		OnTxEnd:   t.CaptureTxEnd,
+		OnEnter:   t.CaptureEnter,
+		OnExit:    t.CaptureExit,
+		OnFault:   t.CaptureFault,
+	}
 }
 
 // =============================================================================
@@ -188,14 +217,7 @@ func NewSimpleTracer() *SimpleTracer {
 	tracer.chainId = new(uint256.Int)
 	tracer.chainId.SetFromBig(chainConfig.ChainID)
 
-	hooks := &tracing.Hooks{
-		OnOpcode:  tracer.CaptureState,
-		OnTxStart: tracer.CaptureTxStart,
-		OnTxEnd:   tracer.CaptureTxEnd,
-		OnEnter:   tracer.CaptureEnter,
-		OnExit:    tracer.CaptureExit,
-		OnFault:   tracer.CaptureFault,
-	}
+	hooks := tracer.Hooks()
 	vmConfig := vm.Config{
 		Tracer: hooks,
 	}
@@ -244,4 +266,28 @@ func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash)
 	var value uint256.Int
 	err := tr.state.GetState(addr, &key, &value)
 	return &value, err
+}
+
+// Signature to match RegisterLookup
+func NewTracerHooks(createResults func(newTracer *StateTracer) (*prover.ResultsFile, error)) func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+	return func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+		newTracer := NewStateTracer()
+		return &tracers.Tracer{
+			Hooks: newTracer.Hooks(),
+			Stop: func(err error) {
+				fmt.Println(err.Error())
+			},
+			GetResult: func() (json.RawMessage, error) {
+				results, err := createResults(newTracer)
+				if err != nil {
+					return nil, err
+				}
+				data, err := json.Marshal(results)
+				if err != nil {
+					return nil, err
+				}
+				return data, nil
+			},
+		}, nil
+	}
 }

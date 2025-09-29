@@ -3,6 +3,8 @@ package prover
 import (
 	"bytes"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -83,6 +85,16 @@ type ProofGeneration struct {
 	Stdout string
 }
 
+type VerificationResult struct {
+	Stdout string
+	Valid  bool
+}
+
+type ResultsFile struct {
+	AppVK string `json:"AppVK"`
+	Proof string `json:"Proof"`
+}
+
 func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
 	cli, err := zkVm.SetupExecution()
 	if err != nil {
@@ -99,6 +111,41 @@ func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
 		return ProofGeneration{}, err
 	}
 	appVk, err := cli.readFile("target/openvm/app.vk")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+
+	results := ProofGeneration{
+		Proof:  proof,
+		AppVK:  appVk,
+		Stdout: output,
+	}
+
+	return results, nil
+}
+
+func (zkVm *ZkProver) StarkProve() (ProofGeneration, error) {
+	workSpace, err := setupWorkspace([]byte(zkVm.content))
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to setup workspace", err)
+	}
+
+	cli := NewCli(workSpace)
+	_, err = cli.Execute("cargo", "openvm", "setup")
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
+	}
+
+	output, err := cli.Execute("cargo", "openvm", "prove", "stark")
+	if err != nil {
+		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
+	}
+
+	proof, err := cli.readFile("prover.stark.proof")
+	if err != nil {
+		return ProofGeneration{}, err
+	}
+	appVk, err := os.ReadFile("/root/.openvm/agg_stark.vk")
 	if err != nil {
 		return ProofGeneration{}, err
 	}
@@ -135,6 +182,61 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 	}
 
 	return executionOutput, nil
+}
+
+func VerifyFromResults(resultsPath string) (VerificationResult, error) {
+	if resultsPath == "" {
+		resultsPath = "results.json"
+	}
+
+	resultsData, err := os.ReadFile(resultsPath)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to read results file", err)
+	}
+
+	var results ResultsFile
+	if err := json.Unmarshal(resultsData, &results); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to parse results file", err)
+	}
+
+	appVKBytes, err := hex.DecodeString(results.AppVK)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to decode AppVK hex", err)
+	}
+
+	proofBytes, err := hex.DecodeString(results.Proof)
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to decode Proof hex", err)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "openvm-verify-*")
+	if err != nil {
+		return VerificationResult{}, NewZkProverError("failed to create temp directory", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	appVKPath := filepath.Join(tmpDir, "app.vk")
+	if err := os.WriteFile(appVKPath, appVKBytes, 0644); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to write app.vk file", err)
+	}
+
+	proofPath := filepath.Join(tmpDir, "proof.app.proof")
+	if err := os.WriteFile(proofPath, proofBytes, 0644); err != nil {
+		return VerificationResult{}, NewZkProverError("failed to write proof file", err)
+	}
+
+	cli := NewCli(tmpDir)
+	output, err := cli.Execute("cargo", "openvm", "verify", "app", "--app-vk", appVKPath, "--proof", proofPath)
+	result := VerificationResult{
+		Stdout: output,
+		Valid:  err == nil,
+	}
+
+	if err != nil {
+		return result, NewZkProverError("verification failed", err)
+	}
+
+	return result, nil
 }
 
 func (zkVm *ZkProver) SetupExecution() (*Cli, error) {
