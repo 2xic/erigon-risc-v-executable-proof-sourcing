@@ -1,13 +1,13 @@
-.PHONY: lint lint-go lint-rust format-go build clean
+.PHONY: lint lint-go lint-rust format-go bins clean
 
 lint: lint-go lint-rust
 	echo "done"
 
-build: bins/evm-prove bins/tx-prove bins/proof-verify
+bins: bins/evm-prove bins/tx-prove bins/proof-verify
 
 bins/evm-prove: cmd/evm-prove/main.go
 	@mkdir -p bins
-	go build -o bins/evm-prove ./cmd/prove
+	go build -o bins/evm-prove ./cmd/evm-prove
 
 bins/tx-prove: cmd/tx-prove/main.go
 	@mkdir -p bins

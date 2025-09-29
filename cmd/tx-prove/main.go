@@ -29,7 +29,7 @@ func main() {
 
 	var txHash string
 	var outputFile string
-	cmd.Flags().StringVar(&txHash, "tx-hash", "04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
+	cmd.Flags().StringVar(&txHash, "tx-hash", "0x04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
 	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
