@@ -269,7 +269,7 @@ func (tr *SimpleTracer) GetStorageAt(addr libcommon.Address, key libcommon.Hash)
 }
 
 // Signature to match RegisterLookup
-func NewTracerHooks(createResults func(newTracer *StateTracer) (*prover.ProofGeneration, error)) func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
+func NewTracerHooks(createResults func(newTracer *StateTracer) (*prover.ResultsFile, error)) func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
 	return func(code string, ctx *tracers.Context, cfg json.RawMessage) (*tracers.Tracer, error) {
 		newTracer := NewStateTracer()
 		return &tracers.Tracer{

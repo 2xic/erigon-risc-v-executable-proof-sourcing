@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
 	"erigon-transpiler-risc-v/transpiler"
@@ -55,7 +56,7 @@ func main() {
 		debugAPI := findDebug(apiList)
 
 		customTracer := tracer.NewTracerHooks(
-			func(newTracer *tracer.StateTracer) (*prover.ProofGeneration, error) {
+			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
 				transpiler := transpiler.NewTranspiler()
 				instructions := newTracer.GetInstructions()
 				executionState := newTracer.GetExecutionState()
@@ -73,7 +74,10 @@ func main() {
 				if err != nil {
 					return nil, err
 				}
-				return &output, nil
+				return &prover.ResultsFile{
+					AppVK: hex.EncodeToString(output.AppVK),
+					Proof: hex.EncodeToString(output.Proof),
+				}, nil
 			},
 		)
 
