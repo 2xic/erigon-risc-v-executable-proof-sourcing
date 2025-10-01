@@ -55,6 +55,18 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 }
 
 func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack []uint256.Int) error {
+	if op.IsStackRestore {
+		tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
+		if op.Result != nil {
+			tr.instructions = append(tr.instructions, tr.pushOpcode(op.Result.Uint64())...)
+		}
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "EBREAK",
+			Operands: []string{},
+		})
+		return nil
+	}
+
 	switch op.Opcode {
 	case vm.ADD:
 		tr.instructions = append(tr.instructions, tr.add256Call()...)
@@ -194,7 +206,6 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Name: "NOP",
 		})
 	case vm.ISZERO:
-		// TODO: optimize?
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 		tr.instructions = append(tr.instructions, tr.eq256Call()...)
 	case vm.CALLVALUE:
@@ -278,22 +289,40 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		varName := tr.storageSection.Load(tr.dataSection, key)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.STOP:
-		// no operation opcode
 		return nil
 	case vm.RETURN:
-		// Pop offset and size from stack, return normally
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		// TODO: set a return code?
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "addi",
+			Operands: []string{"sp", "s3", "0"},
+		})
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "EBREAK",
+			Operands: []string{},
+		})
 		return nil
 	case vm.REVERT:
-		// Pop offset and size from stack, return with revert status
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "addi",
+			Operands: []string{"sp", "s3", "0"},
+		})
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "EBREAK",
+			Operands: []string{},
+		})
 		return nil
-		// TODO: set a return code?
 	case vm.INVALID:
-		// TODO: set a return code?
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "addi",
+			Operands: []string{"sp", "s3", "0"},
+		})
+		tr.instructions = append(tr.instructions, prover.Instruction{
+			Name:     "EBREAK",
+			Operands: []string{},
+		})
 		return nil
 	case vm.CALLER:
 		callerBytes := state.Caller.Bytes()
@@ -321,6 +350,48 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		length := op.StackSnapshot[0].Uint64()
 
 		tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
+	case vm.CALL:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+	case vm.DELEGATECALL:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+	case vm.STATICCALL:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+	case vm.CALLCODE:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 	default:
 		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
 	}
@@ -594,6 +665,65 @@ func (tr *transpiler) popStack() []prover.Instruction {
 		{
 			Name:     "addi",
 			Operands: []string{"sp", "sp", "32"},
+		},
+	}
+}
+
+func (tr *transpiler) saveStackContext() []prover.Instruction {
+	return []prover.Instruction{
+
+		{
+			Name:     "addi",
+			Operands: []string{"s1", "s1", "-4"},
+		},
+		{
+			Name:     "sw",
+			Operands: []string{"sp", "0(s1)"},
+		},
+
+		{
+			Name:     "addi",
+			Operands: []string{"s1", "s1", "-4"},
+		},
+		{
+			Name:     "sw",
+			Operands: []string{"s3", "0(s1)"},
+		},
+	}
+}
+
+func (tr *transpiler) createNewStackFrame() []prover.Instruction {
+	return []prover.Instruction{
+		{
+			Name:     "addi",
+			Operands: []string{"sp", "sp", "-1024"},
+		},
+		{
+			Name:     "addi",
+			Operands: []string{"s3", "sp", "0"},
+		},
+	}
+}
+
+func (tr *transpiler) restoreStackContext() []prover.Instruction {
+	return []prover.Instruction{
+
+		{
+			Name:     "lw",
+			Operands: []string{"s3", "0(s1)"},
+		},
+		{
+			Name:     "addi",
+			Operands: []string{"s1", "s1", "4"},
+		},
+
+		{
+			Name:     "lw",
+			Operands: []string{"sp", "0(s1)"},
+		},
+		{
+			Name:     "addi",
+			Operands: []string{"s1", "s1", "4"},
 		},
 	}
 }

@@ -33,10 +33,11 @@ type EvmExecutionState struct {
 }
 
 type EvmInstructionMetadata struct {
-	Opcode        vm.OpCode
-	Arguments     []byte
-	StackSnapshot []uint256.Int
-	Result        *uint256.Int // Stores the result of operations like KECCAK256
+	Opcode         vm.OpCode
+	Arguments      []byte
+	StackSnapshot  []uint256.Int
+	Result         *uint256.Int // Stores the result of operations like KECCAK256
+	IsStackRestore bool         // Special flag for stack restoration instructions
 }
 
 // =============================================================================
@@ -107,15 +108,31 @@ func (t *StateTracer) CaptureTxEnd(receipt *types.Receipt, err error) {}
 func (t *StateTracer) CaptureEnter(depth int, typ byte, from libcommon.Address, to libcommon.Address, precompile bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
 }
 func (t *StateTracer) CaptureExit(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+	if depth > 0 {
+		var result *uint256.Int
+		if err == nil && !reverted {
+			result = uint256.NewInt(1)
+		} else {
+			result = uint256.NewInt(0)
+		}
+
+		t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{
+			Opcode:         vm.STOP,
+			Arguments:      []byte{},
+			StackSnapshot:  []uint256.Int{},
+			Result:         result,
+			IsStackRestore: true,
+		})
+	}
 }
 func (t *StateTracer) CaptureFault(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, depth int, err error) {
 }
 
 func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	stackData := scope.StackData()
+	opCode := vm.OpCode(op)
 
 	arguments := []byte{}
-	opCode := vm.OpCode(op)
 	if opCode.IsPushWithImmediateArgs() {
 		size := uint64(op) - uint64(vm.PUSH1-1)
 		arguments = make([]byte, size)
