@@ -15,17 +15,23 @@ import (
 )
 
 type transpiler struct {
-	instructions   []prover.Instruction
-	dataSection    *DataSection
-	storageSection *StorageSection
+	instructions    []prover.Instruction
+	dataSection     *DataSection
+	storageSection  *StorageSection
+	enableSnapshots bool
 }
 
 func NewTranspiler() *transpiler {
 	return &transpiler{
-		instructions:   make([]prover.Instruction, 0),
-		dataSection:    NewDataSection(),
-		storageSection: NewStorageSection(),
+		instructions:    make([]prover.Instruction, 0),
+		dataSection:     NewDataSection(),
+		storageSection:  NewStorageSection(),
+		enableSnapshots: false, // Disabled by default to save memory
 	}
+}
+
+func (tr *transpiler) EnableSnapshots() {
+	tr.enableSnapshots = true
 }
 
 func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMetadata, executionState *tracer.EvmExecutionState) (EvmStackSnapshot, error) {
@@ -33,17 +39,25 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 		Snapshots: make([][]uint256.Int, 0),
 	}
 
+	fmt.Println("processing ... ", len(instructions))
+
 	for i := range instructions {
-		var resultStack []uint256.Int
+		if i%100 == 0 {
+			fmt.Println("Index ... ", i)
+		}
+		if i > 2790 {
+			fmt.Printf("Processing instruction %d: %s (total RISC-V instructions: %d)\n", i, instructions[i].Opcode.String(), len(tr.instructions))
+		}
+		var resultStack *[]uint256.Int
 		if i+1 < len(instructions) {
-			resultStack = instructions[i+1].StackSnapshot
+			resultStack = &instructions[i+1].StackSnapshot
 		}
 
 		err := tr.AddInstructionWithResult(instructions[i], executionState, resultStack)
 		if err != nil {
 			return snapshot, err
 		}
-		if i > 0 {
+		if i > 0 && tr.enableSnapshots {
 			snapshot.Snapshots = append(snapshot.Snapshots, instructions[i].StackSnapshot)
 		}
 	}
@@ -54,11 +68,12 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 	return tr.AddInstructionWithResult(op, state, nil)
 }
 
-func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack []uint256.Int) error {
+func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack *[]uint256.Int) error {
+
 	if op.IsStackRestore {
 		tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
 		if op.Result != nil {
-			tr.instructions = append(tr.instructions, tr.pushOpcode(op.Result.Uint64())...)
+			tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Result.Uint64()))...)
 		}
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name:     "EBREAK",
@@ -153,18 +168,18 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.PUSH0:
-		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(0))...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.PUSH1:
-		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(op.Arguments[0]))...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Arguments[0]))...)
 	case vm.PUSH2:
 		value := binary.BigEndian.Uint16(op.Arguments)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(int32(value))...)
 	case vm.PUSH3:
 		value := uint64(op.Arguments[0])<<16 | uint64(op.Arguments[1])<<8 | uint64(op.Arguments[2])
-		tr.instructions = append(tr.instructions, tr.pushOpcode(value)...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(int32(value))...)
 	case vm.PUSH4:
 		value := binary.BigEndian.Uint32(op.Arguments)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(value))...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(int32(value))...)
 	case vm.PUSH5, vm.PUSH6, vm.PUSH7:
 		value := new(uint256.Int)
 		value.SetBytes(op.Arguments)
@@ -333,28 +348,15 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CODECOPY:
-		// Pop arguments and get parameters
+		// TODO: implement proper codecopy operation - using dummy for now to avoid memory issues
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-
-		destOffset := op.StackSnapshot[2].Uint64()
-		codeOffset := op.StackSnapshot[1].Uint64()
-		length := op.StackSnapshot[0].Uint64()
-
-		tr.instructions = append(tr.instructions, tr.codecopyCall(destOffset, codeOffset, length, state.CodeData)...)
 	case vm.RETURNDATACOPY:
-		// Pop arguments and get parameters
+		// TODO: implement proper returndatacopy operation - commented out to avoid memory issues
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-
-		destOffset := op.StackSnapshot[2].Uint64()
-		returnDataOffset := op.StackSnapshot[1].Uint64()
-		length := op.StackSnapshot[0].Uint64()
-
-		// TODO: Add ReturnData field to EvmExecutionState or get return data from context
-		tr.instructions = append(tr.instructions, tr.returndatacopyCall(destOffset, returnDataOffset, length, []byte{})...)
 	case vm.SSTORE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -422,10 +424,11 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if len(resultStack) == 0 {
+		if resultStack == nil {
 			return fmt.Errorf("KECCAK256 requires result stack but none provided")
 		}
-		hashResult := resultStack[len(resultStack)-1]
+		a := *resultStack
+		hashResult := a[len(a)-1]
 		varName := tr.dataSection.Add(&hashResult)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.MCOPY:
@@ -434,11 +437,11 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		destOffset := op.StackSnapshot[2].Uint64()
-		srcOffset := op.StackSnapshot[1].Uint64()
-		length := op.StackSnapshot[0].Uint64()
-
-		tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
+		// TODO: implement proper mcopy operation - commented out to avoid memory issues
+		// destOffset := op.StackSnapshot[2].Uint64()
+		// srcOffset := op.StackSnapshot[1].Uint64()
+		// length := op.StackSnapshot[0].Uint64()
+		// tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
 	case vm.CALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -493,7 +496,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	return nil
 }
 
-func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
+func (tr *transpiler) pushOpcode(value int32) []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
@@ -501,7 +504,7 @@ func (tr *transpiler) pushOpcode(value uint64) []prover.Instruction {
 		},
 		{
 			Name:     "li",
-			Operands: []string{"t0", strconv.FormatUint(value, 10)},
+			Operands: []string{"t0", strconv.FormatInt(int64(value), 10)},
 		},
 		{
 			Name:     "sw",
