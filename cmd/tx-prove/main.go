@@ -29,8 +29,12 @@ func main() {
 
 	var txHash string
 	var outputFile string
+	var debugAssembly bool
+	var assemblyFile string
 	cmd.Flags().StringVar(&txHash, "tx-hash", "0x04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
 	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
+	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
+	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled.s", "Assembly output file path (used with --debug-assembly)")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -55,8 +59,11 @@ func main() {
 		stream := jsonstream.New(&buf)
 		debugAPI := findDebug(apiList)
 
+		ranTracer := false
 		customTracer := tracer.NewTracerHooks(
 			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
+				ranTracer = true
+				fmt.Println("hello")
 				transpiler := transpiler.NewTranspiler()
 				instructions := newTracer.GetInstructions()
 				executionState := newTracer.GetExecutionState()
@@ -69,6 +76,17 @@ func main() {
 				if err != nil {
 					return nil, err
 				}
+
+				// Write assembly to disk if debug flag is set
+				if debugAssembly {
+					err := os.WriteFile(assemblyFile, []byte(content), 0644)
+					if err != nil {
+						fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)
+					} else {
+						fmt.Printf("Transpiled assembly written to: %s\n", assemblyFile)
+					}
+				}
+
 				zkVm := prover.NewZkProver(content)
 				output, err := zkVm.Prove()
 				if err != nil {
@@ -95,6 +113,12 @@ func main() {
 		)
 		if err != nil {
 			fmt.Println("failed to do trace", err.Error())
+			os.Exit(1)
+		}
+
+		if !ranTracer {
+			fmt.Println("failed to do trace ... Transaction not found?")
+			os.Exit(1)
 		}
 
 		// Output results to file or stdout

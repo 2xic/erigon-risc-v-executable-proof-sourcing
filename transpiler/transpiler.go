@@ -76,6 +76,43 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.sub256Call()...)
 	case vm.DIV:
 		tr.instructions = append(tr.instructions, tr.div256Call()...)
+	case vm.SDIV:
+		// TODO: implement signed division operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.MOD:
+		// TODO: implement modulo operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.SMOD:
+		// TODO: implement signed modulo operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.ADDMOD:
+		// TODO: implement addition modulo operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.MULMOD:
+		// TODO: implement multiplication modulo operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.EXP:
+		// TODO: implement exponentiation operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.SIGNEXTEND:
+		// TODO: implement sign extension operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.AND:
 		tr.instructions = append(tr.instructions, tr.and256Call()...)
 	case vm.OR:
@@ -92,10 +129,29 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.shl256Call()...)
 	case vm.GT:
 		tr.instructions = append(tr.instructions, tr.gt256Call()...)
+	case vm.SGT:
+		// TODO: implement signed greater than operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.LT:
 		tr.instructions = append(tr.instructions, tr.lt256Call()...)
 	case vm.NOT:
 		tr.instructions = append(tr.instructions, tr.not256Call()...)
+	case vm.BYTE:
+		// TODO: implement byte operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.SAR:
+		// TODO: implement arithmetic shift right operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+	case vm.CLZ:
+		// TODO: implement count leading zeros operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.PUSH0:
 		tr.instructions = append(tr.instructions, tr.pushOpcode(uint64(0))...)
 	case vm.PUSH1:
@@ -262,10 +318,20 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		size := uint256.NewInt(uint64(len(state.CallData)))
 		varName := tr.dataSection.Add(size)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.RETURNDATASIZE:
+		// TODO: Add ReturnData field to EvmExecutionState or get return data from context
+		size := uint256.NewInt(0) // Using 0 as placeholder until ReturnData is available
+		varName := tr.dataSection.Add(size)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.CALLDATALOAD:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		offset := op.StackSnapshot[0].Uint64()
 		tr.instructions = append(tr.instructions, tr.calldataloadCall(offset, state.CallData)...)
+	case vm.CALLDATACOPY:
+		// TODO: implement calldata copy operation
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CODECOPY:
 		// Pop arguments and get parameters
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -277,13 +343,36 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		length := op.StackSnapshot[0].Uint64()
 
 		tr.instructions = append(tr.instructions, tr.codecopyCall(destOffset, codeOffset, length, state.CodeData)...)
+	case vm.RETURNDATACOPY:
+		// Pop arguments and get parameters
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+
+		destOffset := op.StackSnapshot[2].Uint64()
+		returnDataOffset := op.StackSnapshot[1].Uint64()
+		length := op.StackSnapshot[0].Uint64()
+
+		// TODO: Add ReturnData field to EvmExecutionState or get return data from context
+		tr.instructions = append(tr.instructions, tr.returndatacopyCall(destOffset, returnDataOffset, length, []byte{})...)
 	case vm.SSTORE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		key := tr.getStorageKey(op.StackSnapshot[1])
 		value := tr.getStorageValue(op.StackSnapshot[0])
 		tr.storageSection.Store(tr.dataSection, key, value)
+	case vm.TSTORE:
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		key := tr.getStorageKey(op.StackSnapshot[1])
+		value := tr.getStorageValue(op.StackSnapshot[0])
+		tr.storageSection.Store(tr.dataSection, key, value)
 	case vm.SLOAD:
+		key := tr.getStorageKey(op.StackSnapshot[0])
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		varName := tr.storageSection.Load(tr.dataSection, key)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.TLOAD:
 		key := tr.getStorageKey(op.StackSnapshot[0])
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		varName := tr.storageSection.Load(tr.dataSection, key)
@@ -638,6 +727,44 @@ func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeDa
 		chunk := make([]byte, 32)
 		if i < uint64(len(codeToCopy)) {
 			copy(chunk, codeToCopy[i:])
+		}
+
+		value := new(uint256.Int)
+		value.SetBytes(chunk)
+		varName := tr.dataSection.Add(value)
+
+		instructions = append(instructions, []prover.Instruction{
+			{Name: "li", Operands: []string{"t0", fmt.Sprintf("%d", destOffset+i)}},
+			{Name: "la", Operands: []string{"t1", varName}},
+		}...)
+
+		for wordOffset := 0; wordOffset < 32; wordOffset += 4 {
+			instructions = append(instructions, []prover.Instruction{
+				{Name: "lw", Operands: []string{"t2", fmt.Sprintf("%d(t1)", wordOffset)}},
+				{Name: "sw", Operands: []string{"t2", fmt.Sprintf("%d(t0)", wordOffset)}},
+			}...)
+		}
+	}
+
+	return instructions
+}
+
+func (tr *transpiler) returndatacopyCall(destOffset, returnDataOffset, length uint64, returnData []byte) []prover.Instruction {
+	var instructions []prover.Instruction
+
+	returnDataToCopy := make([]byte, length)
+	if returnDataOffset < uint64(len(returnData)) {
+		end := returnDataOffset + length
+		if end > uint64(len(returnData)) {
+			end = uint64(len(returnData))
+		}
+		copy(returnDataToCopy, returnData[returnDataOffset:end])
+	}
+
+	for i := uint64(0); i < length; i += 32 {
+		chunk := make([]byte, 32)
+		if i < uint64(len(returnDataToCopy)) {
+			copy(chunk, returnDataToCopy[i:])
 		}
 
 		value := new(uint256.Int)
