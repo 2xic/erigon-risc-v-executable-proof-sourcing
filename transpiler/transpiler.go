@@ -26,10 +26,10 @@ type transpiler struct {
 }
 
 type EvmToRiscVMapping struct {
-	EvmOpcode         string                  `json:"evm_opcode"`
-	RiscVInstructions []prover.Instruction    `json:"risc_v_instructions"`
-	DataVariables     []prover.DataVariable   `json:"data_variables"`
-	CallDepth         int                     `json:"call_depth"`
+	EvmOpcode         string                `json:"evm_opcode"`
+	RiscVInstructions []prover.Instruction  `json:"risc_v_instructions"`
+	DataVariables     []prover.DataVariable `json:"data_variables"`
+	CallDepth         int                   `json:"call_depth"`
 }
 
 func NewTranspiler() *transpiler {
@@ -37,7 +37,7 @@ func NewTranspiler() *transpiler {
 		instructions:    make([]prover.Instruction, 0),
 		dataSection:     NewDataSection(),
 		storageSection:  NewStorageSection(),
-		enableSnapshots: false, // Disabled by default to save memory
+		enableSnapshots: false,
 		debugMappings:   make([]EvmToRiscVMapping, 0),
 		currentDepth:    0,
 	}
@@ -52,19 +52,7 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 		Snapshots: make([][]uint256.Int, 0),
 	}
 
-	fmt.Println("processing ... ", len(instructions))
-
 	for i := range instructions {
-		//	if i%100 == 0 {
-		//		fmt.Println("Index ... ", i)
-		//	}
-		// 650 -> 600
-		/*		if i > 650 {
-					break
-				}
-				if i > 2790 {
-					fmt.Printf("Processing instruction %d: %s (total RISC-V instructions: %d)\n", i, instructions[i].Opcode.String(), len(tr.instructions))
-				}*/
 		var resultStack *[]uint256.Int
 		if i+1 < len(instructions) {
 			resultStack = &instructions[i+1].StackSnapshot
@@ -93,7 +81,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		if tr.currentDepth > 0 {
 			tr.currentDepth--
 		}
-		
+
 		tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
 		if op.Result != nil {
 			tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Result.Uint64()))...)
@@ -127,42 +115,47 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	case vm.DIV:
 		tr.instructions = append(tr.instructions, tr.div256Call()...)
 	case vm.SDIV:
-		// TODO: implement signed division operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		sdivInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SDIV")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, sdivInstructions...)
 	case vm.MOD:
-		// TODO: implement modulo operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		modInstructions, err := tr.resultFromTraceCall(resultStack, 2, "MOD")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, modInstructions...)
 	case vm.SMOD:
-		// TODO: implement signed modulo operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		smodInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SMOD")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, smodInstructions...)
 	case vm.ADDMOD:
-		// TODO: implement addition modulo operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		addmodInstructions, err := tr.resultFromTraceCall(resultStack, 3, "ADDMOD")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, addmodInstructions...)
 	case vm.MULMOD:
-		// TODO: implement multiplication modulo operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		mulmodInstructions, err := tr.resultFromTraceCall(resultStack, 3, "MULMOD")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, mulmodInstructions...)
 	case vm.EXP:
-		// TODO: implement exponentiation operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		expInstructions, err := tr.resultFromTraceCall(resultStack, 2, "EXP")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, expInstructions...)
 	case vm.SIGNEXTEND:
-		// TODO: implement sign extension operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		signextendInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SIGNEXTEND")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, signextendInstructions...)
 	case vm.AND:
 		tr.instructions = append(tr.instructions, tr.and256Call()...)
 	case vm.OR:
@@ -180,28 +173,27 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	case vm.GT:
 		tr.instructions = append(tr.instructions, tr.gt256Call()...)
 	case vm.SGT:
-		// TODO: implement signed greater than operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		sgtInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SGT")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, sgtInstructions...)
 	case vm.LT:
 		tr.instructions = append(tr.instructions, tr.lt256Call()...)
 	case vm.NOT:
 		tr.instructions = append(tr.instructions, tr.not256Call()...)
 	case vm.BYTE:
-		// TODO: implement byte operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		byteInstructions, err := tr.resultFromTraceCall(resultStack, 2, "BYTE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, byteInstructions...)
 	case vm.SAR:
-		// TODO: implement arithmetic shift right operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
-	case vm.CLZ:
-		// TODO: implement count leading zeros operation
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+		sarInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SAR")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, sarInstructions...)
 	case vm.PUSH0:
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.PUSH1:
@@ -308,9 +300,15 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MLOAD:
-		// TODO: implement proper mload operation - using dummy for now
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
+
+		if resultStack == nil {
+			return fmt.Errorf("MLOAD requires result stack but none provided")
+		}
+		a := *resultStack
+		loadResult := a[len(a)-1]
+		varName := tr.dataSection.Add(&loadResult)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.JUMPDEST:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name: "NOP",
@@ -471,11 +469,9 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		varName := tr.dataSection.Add(&hashResult)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.MCOPY:
-		// Pop arguments and get parameters
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-
 		// TODO: implement proper mcopy operation - commented out to avoid memory issues
 		// destOffset := op.StackSnapshot[2].Uint64()
 		// srcOffset := op.StackSnapshot[1].Uint64()
@@ -989,6 +985,25 @@ func (tr *transpiler) getDataSectionSnapshot() []prover.DataVariable {
 		})
 	}
 	return dataVars
+}
+
+func (tr *transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs int, opName string) ([]prover.Instruction, error) {
+	var instructions []prover.Instruction
+
+	for i := 0; i < numArgs; i++ {
+		instructions = append(instructions, tr.popStack()...)
+	}
+
+	if resultStack == nil {
+		return nil, fmt.Errorf("%s requires result stack but none provided", opName)
+	}
+
+	a := *resultStack
+	result := a[len(a)-1]
+	varName := tr.dataSection.Add(&result)
+	instructions = append(instructions, tr.loadFromDataSection(varName)...)
+
+	return instructions, nil
 }
 
 type DataSection struct {

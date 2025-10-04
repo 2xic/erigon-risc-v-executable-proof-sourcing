@@ -688,6 +688,50 @@ func TestArithmeticOpcodes(t *testing.T) {
 			name:     "XOR_large",
 			bytecode: []byte{byte(vm.PUSH4), 0xAA, 0xAA, 0xAA, 0xAA, byte(vm.PUSH4), 0x55, 0x55, 0x55, 0x55, byte(vm.XOR)},
 		},
+		{
+			name:     "SDIV_positive",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x9, byte(vm.SDIV)},
+		},
+		{
+			name:     "SDIV_negative",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH32), 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, byte(vm.SDIV)},
+		},
+		{
+			name:     "MOD_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x7, byte(vm.MOD)},
+		},
+		{
+			name:     "SMOD_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x7, byte(vm.SMOD)},
+		},
+		{
+			name:     "ADDMOD_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x5, byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x4, byte(vm.ADDMOD)},
+		},
+		{
+			name:     "MULMOD_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x5, byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x4, byte(vm.MULMOD)},
+		},
+		{
+			name:     "EXP_small",
+			bytecode: []byte{byte(vm.PUSH1), 0x2, byte(vm.PUSH1), 0x3, byte(vm.EXP)},
+		},
+		{
+			name:     "SIGNEXTEND_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x80, byte(vm.PUSH1), 0x0, byte(vm.SIGNEXTEND)},
+		},
+		{
+			name:     "SGT_positive",
+			bytecode: []byte{byte(vm.PUSH1), 0x3, byte(vm.PUSH1), 0x5, byte(vm.SGT)},
+		},
+		{
+			name:     "BYTE_extract",
+			bytecode: []byte{byte(vm.PUSH4), 0x12, 0x34, 0x56, 0x78, byte(vm.PUSH1), 0x0, byte(vm.BYTE)},
+		},
+		{
+			name:     "SAR_basic",
+			bytecode: []byte{byte(vm.PUSH1), 0x80, byte(vm.PUSH1), 0x1, byte(vm.SAR)},
+		},
 	}
 
 	for _, tc := range tests {
