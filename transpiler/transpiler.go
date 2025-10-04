@@ -2,8 +2,10 @@ package transpiler
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
+	"os"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 
@@ -19,6 +21,15 @@ type transpiler struct {
 	dataSection     *DataSection
 	storageSection  *StorageSection
 	enableSnapshots bool
+	debugMappings   []EvmToRiscVMapping
+	currentDepth    int
+}
+
+type EvmToRiscVMapping struct {
+	EvmOpcode         string                  `json:"evm_opcode"`
+	RiscVInstructions []prover.Instruction    `json:"risc_v_instructions"`
+	DataVariables     []prover.DataVariable   `json:"data_variables"`
+	CallDepth         int                     `json:"call_depth"`
 }
 
 func NewTranspiler() *transpiler {
@@ -27,6 +38,8 @@ func NewTranspiler() *transpiler {
 		dataSection:     NewDataSection(),
 		storageSection:  NewStorageSection(),
 		enableSnapshots: false, // Disabled by default to save memory
+		debugMappings:   make([]EvmToRiscVMapping, 0),
+		currentDepth:    0,
 	}
 }
 
@@ -42,12 +55,16 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 	fmt.Println("processing ... ", len(instructions))
 
 	for i := range instructions {
-		if i%100 == 0 {
-			fmt.Println("Index ... ", i)
-		}
-		if i > 2790 {
-			fmt.Printf("Processing instruction %d: %s (total RISC-V instructions: %d)\n", i, instructions[i].Opcode.String(), len(tr.instructions))
-		}
+		//	if i%100 == 0 {
+		//		fmt.Println("Index ... ", i)
+		//	}
+		// 650 -> 600
+		/*		if i > 650 {
+					break
+				}
+				if i > 2790 {
+					fmt.Printf("Processing instruction %d: %s (total RISC-V instructions: %d)\n", i, instructions[i].Opcode.String(), len(tr.instructions))
+				}*/
 		var resultStack *[]uint256.Int
 		if i+1 < len(instructions) {
 			resultStack = &instructions[i+1].StackSnapshot
@@ -69,8 +86,14 @@ func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *t
 }
 
 func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack *[]uint256.Int) error {
+	startInstructionCount := len(tr.instructions)
 
 	if op.IsStackRestore {
+		// Decrement call depth when returning from a call
+		if tr.currentDepth > 0 {
+			tr.currentDepth--
+		}
+		
 		tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
 		if op.Result != nil {
 			tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Result.Uint64()))...)
@@ -79,6 +102,18 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Name:     "EBREAK",
 			Operands: []string{},
 		})
+
+		// Record the mapping
+		generatedInstructions := tr.instructions[startInstructionCount:]
+		dataVars := tr.getDataSectionSnapshot()
+		tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
+			EvmOpcode:         "STACK_RESTORE",
+			RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
+			DataVariables:     dataVars,
+			CallDepth:         tr.currentDepth,
+		})
+		copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
+
 		return nil
 	}
 
@@ -269,9 +304,13 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	case vm.POP:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MSTORE:
-		tr.instructions = append(tr.instructions, tr.mstore256Call()...)
+		// TODO: implement proper mstore operation - using dummy for now
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MLOAD:
-		tr.instructions = append(tr.instructions, tr.mload256Call()...)
+		// TODO: implement proper mload operation - using dummy for now
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
 	case vm.JUMPDEST:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name: "NOP",
@@ -453,6 +492,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		tr.currentDepth++ // Increment call depth
 	case vm.DELEGATECALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -463,6 +503,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		tr.currentDepth++ // Increment call depth
 	case vm.STATICCALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -473,6 +514,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		tr.currentDepth++ // Increment call depth
 	case vm.CALLCODE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -484,6 +526,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		tr.currentDepth++ // Increment call depth
 	default:
 		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
 	}
@@ -492,6 +535,17 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		Name:     "EBREAK",
 		Operands: []string{},
 	})
+
+	// Record the mapping for this EVM opcode
+	generatedInstructions := tr.instructions[startInstructionCount:]
+	dataVars := tr.getDataSectionSnapshot()
+	tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
+		EvmOpcode:         op.Opcode.String(),
+		RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
+		DataVariables:     dataVars,
+		CallDepth:         tr.currentDepth,
+	})
+	copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
 
 	return nil
 }
@@ -912,6 +966,29 @@ func (tr *transpiler) ToAssembly() *prover.AssemblyFile {
 		Instructions: tr.instructions,
 		DataSection:  dataSection,
 	}
+}
+
+func (tr *transpiler) GetDebugMappings() []EvmToRiscVMapping {
+	return tr.debugMappings
+}
+
+func (tr *transpiler) SaveDebugMappings(filename string) error {
+	data, err := json.MarshalIndent(tr.debugMappings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filename, data, 0644)
+}
+
+func (tr *transpiler) getDataSectionSnapshot() []prover.DataVariable {
+	dataVars := make([]prover.DataVariable, 0)
+	for _, dataVar := range tr.dataSection.Iter() {
+		dataVars = append(dataVars, prover.DataVariable{
+			Name:  dataVar.Name,
+			Value: dataVar.Value,
+		})
+	}
+	return dataVars
 }
 
 type DataSection struct {
