@@ -62,12 +62,16 @@ func (cli *Cli) Execute(arg ...string) (string, error) {
 	cmd := exec.Command(arg[0], arg[1:]...)
 	cmd.Dir = cli.workSpace
 
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	return output.String(), err
+	if err != nil && stderr.Len() > 0 {
+		return stdout.String(), fmt.Errorf("%w: stderr: %s", err, stderr.String())
+	}
+	return stdout.String(), err
 }
 
 func (cli *Cli) readFile(name string) ([]byte, error) {

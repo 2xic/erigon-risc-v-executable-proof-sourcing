@@ -77,6 +77,15 @@ func main() {
 					return nil, err
 				}
 
+				// Write debug mappings to file
+				debugFile := "debug_mappings.json"
+				err = transpiler.SaveDebugMappings(debugFile)
+				if err != nil {
+					fmt.Printf("Warning: Failed to write debug mappings to %s: %v\n", debugFile, err)
+				} else {
+					fmt.Printf("Debug mappings written to: %s\n", debugFile)
+				}
+
 				// Write assembly to disk if debug flag is set
 				if debugAssembly {
 					err := os.WriteFile(assemblyFile, []byte(content), 0644)
