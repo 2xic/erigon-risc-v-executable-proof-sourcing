@@ -21,15 +21,21 @@ import (
 )
 
 type EvmExecutionState struct {
-	CallValue *uint256.Int
-	CallData  []byte
-	CodeData  []byte
-	Gas       *uint256.Int
-	Address   libcommon.Address
-	Caller    libcommon.Address
-	Timestamp *uint256.Int
-	ChainId   *uint256.Int
-	CodeSizes map[libcommon.Address]uint64
+	CallValue   *uint256.Int
+	CallData    []byte
+	CodeData    []byte
+	Gas         *uint256.Int
+	Address     libcommon.Address
+	Caller      libcommon.Address
+	Origin      libcommon.Address
+	Timestamp   *uint256.Int
+	ChainId     *uint256.Int
+	Coinbase    libcommon.Address
+	BlockNumber *uint256.Int
+	Difficulty  *uint256.Int
+	GasLimit    *uint256.Int
+	BaseFee     *uint256.Int
+	CodeSizes   map[libcommon.Address]uint64
 }
 
 type EvmInstructionMetadata struct {
@@ -84,6 +90,12 @@ type StateTracer struct {
 	executionState  *EvmExecutionState
 	blockTime       uint64
 	chainId         *uint256.Int
+	coinbase        libcommon.Address
+	origin          libcommon.Address
+	blockNumber     *uint256.Int
+	difficulty      *uint256.Int
+	gasLimit        *uint256.Int
+	baseFee         *uint256.Int
 }
 
 func NewStateTracer() *StateTracer {
@@ -103,6 +115,13 @@ func (t *StateTracer) CaptureTxStart(vm *tracing.VMContext, tx types.Transaction
 	t.blockTime = vm.Time
 	t.chainId = new(uint256.Int)
 	t.chainId.SetFromBig(vm.ChainConfig.ChainID)
+	t.coinbase = vm.Coinbase
+	t.origin = from // The transaction originator
+	t.blockNumber = uint256.NewInt(vm.BlockNumber)
+	// Use placeholder values for fields not available in VMContext
+	t.difficulty = uint256.NewInt(0) // Placeholder
+	t.gasLimit = uint256.NewInt(30000000) // Default gas limit placeholder
+	t.baseFee = uint256.NewInt(0) // Placeholder
 }
 func (t *StateTracer) CaptureTxEnd(receipt *types.Receipt, err error) {}
 func (t *StateTracer) CaptureEnter(depth int, typ byte, from libcommon.Address, to libcommon.Address, precompile bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
@@ -152,15 +171,21 @@ func (t *StateTracer) CaptureState(pc uint64, op byte, gas, cost uint64, scope t
 	codeSizes[scope.Address()] = uint64(len(scope.Code()))
 
 	t.executionState = &EvmExecutionState{
-		CallValue: scope.CallValue(),
-		CallData:  scope.CallInput(),
-		CodeData:  scope.Code(),
-		Gas:       uint256.NewInt(gas),
-		Address:   scope.Address(),
-		Caller:    scope.Caller(),
-		Timestamp: uint256.NewInt(t.blockTime),
-		ChainId:   t.chainId,
-		CodeSizes: codeSizes,
+		CallValue:   scope.CallValue(),
+		CallData:    scope.CallInput(),
+		CodeData:    scope.Code(),
+		Gas:         uint256.NewInt(gas),
+		Address:     scope.Address(),
+		Caller:      scope.Caller(),
+		Origin:      t.origin,
+		Timestamp:   uint256.NewInt(t.blockTime),
+		ChainId:     t.chainId,
+		Coinbase:    t.coinbase,
+		BlockNumber: t.blockNumber,
+		Difficulty:  t.difficulty,
+		GasLimit:    t.gasLimit,
+		BaseFee:     t.baseFee,
+		CodeSizes:   codeSizes,
 	}
 
 	t.evmInstructions = append(t.evmInstructions, &EvmInstructionMetadata{

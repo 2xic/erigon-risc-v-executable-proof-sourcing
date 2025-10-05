@@ -7,8 +7,6 @@ import (
 	"erigon-transpiler-risc-v/tracer"
 	"os"
 
-	libcommon "github.com/erigontech/erigon-lib/common"
-
 	"fmt"
 	"strconv"
 
@@ -296,19 +294,15 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	case vm.POP:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MSTORE:
-		// TODO: implement proper mstore operation - using dummy for now
+		// TODO: implement proper mstore operation that stores to memory
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.MLOAD:
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-
-		if resultStack == nil {
-			return fmt.Errorf("MLOAD requires result stack but none provided")
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "MLOAD")
+		if err != nil {
+			return err
 		}
-		a := *resultStack
-		loadResult := a[len(a)-1]
-		varName := tr.dataSection.Add(&loadResult)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		tr.instructions = append(tr.instructions, instructions...)
 	case vm.JUMPDEST:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name: "NOP",
@@ -327,27 +321,128 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		addressUint256.SetBytes(state.Address.Bytes())
 		varName := tr.dataSection.Add(addressUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.BALANCE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "BALANCE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.ORIGIN:
+		originUint256 := new(uint256.Int)
+		originUint256.SetBytes(state.Origin.Bytes())
+		varName := tr.dataSection.Add(originUint256)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.TIMESTAMP:
 		varName := tr.dataSection.Add(state.Timestamp)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.CHAINID:
 		varName := tr.dataSection.Add(state.ChainId)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
-	case vm.EXTCODESIZE:
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		// Get the address from the stack snapshot and look up its code size
-		addressToCheck := op.StackSnapshot[0]
-		var addr libcommon.Address
-		addressToCheck.WriteToSlice(addr[:])
-
-		codeSize := uint64(0)
-		if size, exists := state.CodeSizes[addr]; exists {
-			codeSize = size
-		}
-
-		codeSizeUint256 := uint256.NewInt(codeSize)
-		varName := tr.dataSection.Add(codeSizeUint256)
+	case vm.COINBASE:
+		coinbaseUint256 := new(uint256.Int)
+		coinbaseUint256.SetBytes(state.Coinbase.Bytes())
+		varName := tr.dataSection.Add(coinbaseUint256)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.BLOCKHASH:
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "BLOCKHASH")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.NUMBER:
+		varName := tr.dataSection.Add(state.BlockNumber)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.DIFFICULTY:
+		varName := tr.dataSection.Add(state.Difficulty)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.GASLIMIT:
+		varName := tr.dataSection.Add(state.GasLimit)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.SELFBALANCE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "SELFBALANCE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.BASEFEE:
+		varName := tr.dataSection.Add(state.BaseFee)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.BLOBHASH:
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "BLOBHASH")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.BLOBBASEFEE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "BLOBBASEFEE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.GASPRICE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "GASPRICE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.CODESIZE:
+		// Return size of current contract code
+		codeSize := uint256.NewInt(uint64(len(state.CodeData)))
+		varName := tr.dataSection.Add(codeSize)
+		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+	case vm.PC:
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "PC")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.MSIZE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "MSIZE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.MSTORE8:
+		// Pop offset and value, store byte to memory (dummy implementation)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.EXTCODECOPY:
+		// Pop address, dest offset, code offset, size (dummy implementation)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.EXTCODEHASH:
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "EXTCODEHASH")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.CREATE:
+		createInstructions, err := tr.resultFromTraceCall(resultStack, 3, "CREATE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, createInstructions...)
+	case vm.CREATE2:
+		create2Instructions, err := tr.resultFromTraceCall(resultStack, 4, "CREATE2")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, create2Instructions...)
+	case vm.SELFDESTRUCT:
+		// Pop recipient address (dummy implementation)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.EXTCODESIZE:
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "EXTCODESIZE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+	case vm.LOG0:
+		// LOG0 pops 2 items: offset, size
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.LOG1:
 		// LOG1 pops 3 items: offset, size, topic1
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -366,15 +461,24 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
+	case vm.LOG4:
+		// LOG4 pops 6 items: offset, size, topic1, topic2, topic3, topic4
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
+		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CALLDATASIZE:
 		size := uint256.NewInt(uint64(len(state.CallData)))
 		varName := tr.dataSection.Add(size)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.RETURNDATASIZE:
-		// TODO: Add ReturnData field to EvmExecutionState or get return data from context
-		size := uint256.NewInt(0) // Using 0 as placeholder until ReturnData is available
-		varName := tr.dataSection.Add(size)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		instructions, err := tr.resultFromTraceCall(resultStack, 0, "RETURNDATASIZE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
 	case vm.CALLDATALOAD:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		offset := op.StackSnapshot[0].Uint64()
@@ -385,12 +489,12 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.CODECOPY:
-		// TODO: implement proper codecopy operation - using dummy for now to avoid memory issues
+		// TODO: implement proper codecopy operation
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 	case vm.RETURNDATACOPY:
-		// TODO: implement proper returndatacopy operation - commented out to avoid memory issues
+		// TODO: implement proper returndatacopy operation
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -458,21 +562,16 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		varName := tr.dataSection.Add(callerValue)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.KECCAK256:
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, tr.popStack()...)
-
-		if resultStack == nil {
-			return fmt.Errorf("KECCAK256 requires result stack but none provided")
+		instructions, err := tr.resultFromTraceCall(resultStack, 2, "KECCAK256")
+		if err != nil {
+			return err
 		}
-		a := *resultStack
-		hashResult := a[len(a)-1]
-		varName := tr.dataSection.Add(&hashResult)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		tr.instructions = append(tr.instructions, instructions...)
 	case vm.MCOPY:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		// TODO: implement proper mcopy operation - commented out to avoid memory issues
+		// TODO: implement proper mcopy operation
 		// destOffset := op.StackSnapshot[2].Uint64()
 		// srcOffset := op.StackSnapshot[1].Uint64()
 		// length := op.StackSnapshot[0].Uint64()
@@ -488,7 +587,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
-		tr.currentDepth++ // Increment call depth
+		tr.currentDepth++
 	case vm.DELEGATECALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -499,7 +598,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
-		tr.currentDepth++ // Increment call depth
+		tr.currentDepth++
 	case vm.STATICCALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -510,7 +609,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
-		tr.currentDepth++ // Increment call depth
+		tr.currentDepth++
 	case vm.CALLCODE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -522,7 +621,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
 		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
-		tr.currentDepth++ // Increment call depth
+		tr.currentDepth++
 	default:
 		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
 	}
@@ -714,6 +813,7 @@ func (tr *transpiler) lt256Call() []prover.Instruction {
 	}
 }
 
+// nolint:unused
 func (tr *transpiler) mstore256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
@@ -722,6 +822,7 @@ func (tr *transpiler) mstore256Call() []prover.Instruction {
 	}
 }
 
+// nolint:unused
 func (tr *transpiler) mload256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
@@ -729,6 +830,7 @@ func (tr *transpiler) mload256Call() []prover.Instruction {
 	}
 }
 
+// nolint:unused
 func (tr *transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.Instruction {
 	var instructions []prover.Instruction
 
@@ -764,6 +866,7 @@ func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.
 	return tr.loadFromDataSection(varName)
 }
 
+// nolint:unused
 func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeData []byte) []prover.Instruction {
 	var instructions []prover.Instruction
 
@@ -802,6 +905,7 @@ func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeDa
 	return instructions
 }
 
+// nolint:unused
 func (tr *transpiler) returndatacopyCall(destOffset, returnDataOffset, length uint64, returnData []byte) []prover.Instruction {
 	var instructions []prover.Instruction
 
