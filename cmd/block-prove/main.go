@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/tracer"
 	"erigon-transpiler-risc-v/transpiler"
@@ -24,16 +25,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type ProofResult struct {
+	TransactionHash  string `json:"transaction_hash"`
+	TransactionIndex int    `json:"transaction_index"`
+	InstructionCount int    `json:"instruction_count"`
+	AppVK            string `json:"app_vk"`
+	Proof            string `json:"proof"`
+}
+
 func main() {
 	cmd, cfg := cli.RootCommand()
 	rootCtx, rootCancel := common.RootContext()
 
 	var blockNumber string
-	var outputFile string
 	var debugAssembly bool
 	var assemblyFile string
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
-	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
 
@@ -97,6 +104,15 @@ func main() {
 			}
 
 			txHash := tx.Hash
+			
+			// Check if transaction already exists
+			outputFolder := fmt.Sprintf("%d", blockNum)
+			txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
+			if _, err := os.Stat(txOutputFile); err == nil {
+				fmt.Printf("Transaction %d/%d already exists, skipping: %s\n", i+1, len(txs), txHash.String())
+				continue
+			}
+			
 			fmt.Printf("Processing transaction %d/%d: %s\n", i+1, len(txs), txHash.String())
 
 			var buf bytes.Buffer
@@ -150,24 +166,31 @@ func main() {
 						return nil, fmt.Errorf("failed to prove transaction %s: %v", txHash.String(), err)
 					}
 
-					result := fmt.Sprintf(`{
-  "transaction_hash": "%s",
-  "transaction_index": %d,
-  "instruction_count": %d,
-  "app_vk": "%s",
-  "proof": "%s"
-}`, txHash.String(), i+1, len(txInstructions), hex.EncodeToString(output.AppVK), hex.EncodeToString(output.Proof))
+					result := ProofResult{
+						TransactionHash:  txHash.String(),
+						TransactionIndex: i + 1,
+						InstructionCount: len(txInstructions),
+						AppVK:            hex.EncodeToString(output.AppVK),
+						Proof:            hex.EncodeToString(output.Proof),
+					}
 
-					if outputFile != "" {
-						txOutputFile := fmt.Sprintf("tx_%d_%s", i+1, outputFile)
-						err := os.WriteFile(txOutputFile, []byte(result), 0644)
+					jsonData, err := json.MarshalIndent(result, "", "  ")
+					if err != nil {
+						return nil, fmt.Errorf("failed to marshal JSON for transaction %s: %v", txHash.String(), err)
+					}
+
+					outputFolder := fmt.Sprintf("%d", blockNum)
+					err = os.MkdirAll(outputFolder, 0755)
+					if err != nil {
+						fmt.Printf("Error creating directory %s: %v\n", outputFolder, err)
+					} else {
+						txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
+						err := os.WriteFile(txOutputFile, jsonData, 0644)
 						if err != nil {
 							fmt.Printf("Error writing to file %s: %v\n", txOutputFile, err)
 						} else {
 							fmt.Printf("Transaction %d results written to: %s\n", i+1, txOutputFile)
 						}
-					} else {
-						fmt.Printf("Transaction %d results: %s\n", i+1, result)
 					}
 
 					return &prover.ResultsFile{}, nil

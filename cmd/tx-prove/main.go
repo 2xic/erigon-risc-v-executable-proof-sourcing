@@ -77,17 +77,15 @@ func main() {
 					return nil, err
 				}
 
-				// Write debug mappings to file
-				debugFile := "debug_mappings.json"
-				err = transpiler.SaveDebugMappings(debugFile)
-				if err != nil {
-					fmt.Printf("Warning: Failed to write debug mappings to %s: %v\n", debugFile, err)
-				} else {
-					fmt.Printf("Debug mappings written to: %s\n", debugFile)
-				}
-
-				// Write assembly to disk if debug flag is set
 				if debugAssembly {
+					debugFile := "debug_mappings.json"
+					err = transpiler.SaveDebugMappings(debugFile)
+					if err != nil {
+						fmt.Printf("Warning: Failed to write debug mappings to %s: %v\n", debugFile, err)
+					} else {
+						fmt.Printf("Debug mappings written to: %s\n", debugFile)
+					}
+
 					err := os.WriteFile(assemblyFile, []byte(content), 0644)
 					if err != nil {
 						fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)
@@ -101,6 +99,7 @@ func main() {
 				if err != nil {
 					return nil, err
 				}
+
 				return &prover.ResultsFile{
 					AppVK: hex.EncodeToString(output.AppVK),
 					Proof: hex.EncodeToString(output.Proof),
