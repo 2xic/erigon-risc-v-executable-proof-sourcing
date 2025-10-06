@@ -529,10 +529,13 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Name:     "addi",
 			Operands: []string{"sp", "s3", "0"},
 		})
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "EBREAK",
-			Operands: []string{},
-		})
+		// Only add EBREAK when in nested call context (depth > 0)
+		if tr.currentDepth > 0 {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "EBREAK",
+				Operands: []string{},
+			})
+		}
 		return nil
 	case vm.REVERT:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -541,20 +544,26 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Name:     "addi",
 			Operands: []string{"sp", "s3", "0"},
 		})
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "EBREAK",
-			Operands: []string{},
-		})
+		// Only add EBREAK when in nested call context (depth > 0)
+		if tr.currentDepth > 0 {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "EBREAK",
+				Operands: []string{},
+			})
+		}
 		return nil
 	case vm.INVALID:
 		tr.instructions = append(tr.instructions, prover.Instruction{
 			Name:     "addi",
 			Operands: []string{"sp", "s3", "0"},
 		})
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "EBREAK",
-			Operands: []string{},
-		})
+		// Only add EBREAK when in nested call context (depth > 0)
+		if tr.currentDepth > 0 {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "EBREAK",
+				Operands: []string{},
+			})
+		}
 		return nil
 	case vm.CALLER:
 		callerBytes := state.Caller.Bytes()
