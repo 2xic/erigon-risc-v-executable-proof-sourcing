@@ -96,6 +96,70 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
+		// Transaction context for tracer callback
+		var currentTxIndex int
+		var currentTxHash common.Hash
+		var ranTracer bool
+
+		// Register tracer once
+		customTracer := tracer.NewTracerHooks(
+			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
+				ranTracer = true
+				txInstructions := newTracer.GetInstructions()
+				txExecutionState := newTracer.GetExecutionState()
+
+				fmt.Printf("Transaction %d generated %d instructions\n", currentTxIndex+1, len(txInstructions))
+
+				transpiler := transpiler.NewTranspiler()
+				_, err := transpiler.ProcessExecution(txInstructions, txExecutionState)
+				if err != nil {
+					return nil, fmt.Errorf("failed to transpile transaction %s: %v", currentTxHash.String(), err)
+				}
+
+				assembly := transpiler.ToAssembly()
+				content, err := assembly.ToToolChainCompatibleAssembly()
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate assembly for transaction %s: %v", currentTxHash.String(), err)
+				}
+
+				zkVm := prover.NewZkProver(content)
+				output, err := zkVm.Prove()
+				if err != nil {
+					return nil, fmt.Errorf("failed to prove transaction %s: %v", currentTxHash.String(), err)
+				}
+
+				result := ProofResult{
+					TransactionHash:  currentTxHash.String(),
+					TransactionIndex: currentTxIndex + 1,
+					InstructionCount: len(txInstructions),
+					AppVK:            hex.EncodeToString(output.AppVK),
+					Proof:            hex.EncodeToString(output.Proof),
+				}
+
+				jsonData, err := json.MarshalIndent(result, "", "  ")
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal JSON for transaction %s: %v", currentTxHash.String(), err)
+				}
+
+				outputFolder := fmt.Sprintf("%d", blockNum)
+				err = os.MkdirAll(outputFolder, 0755)
+				if err != nil {
+					fmt.Printf("Error creating directory %s: %v\n", outputFolder, err)
+				} else {
+					txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, currentTxIndex+1)
+					err := os.WriteFile(txOutputFile, jsonData, 0644)
+					if err != nil {
+						fmt.Printf("Error writing to file %s: %v\n", txOutputFile, err)
+					} else {
+						fmt.Printf("Transaction %d results written to: %s\n", currentTxIndex+1, txOutputFile)
+					}
+				}
+
+				return &prover.ResultsFile{}, nil
+			},
+		)
+		tracers.RegisterLookup(false, customTracer)
+
 		for i, txInterface := range txs {
 			tx, ok := txInterface.(*ethapi.RPCTransaction)
 			if !ok {
@@ -104,7 +168,7 @@ func main() {
 			}
 
 			txHash := tx.Hash
-			
+
 			// Check if transaction already exists
 			outputFolder := fmt.Sprintf("%d", blockNum)
 			txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
@@ -112,92 +176,17 @@ func main() {
 				fmt.Printf("Transaction %d/%d already exists, skipping: %s\n", i+1, len(txs), txHash.String())
 				continue
 			}
-			
+
 			fmt.Printf("Processing transaction %d/%d: %s\n", i+1, len(txs), txHash.String())
+
+			// Set current transaction context for tracer callback
+			currentTxIndex = i
+			currentTxHash = txHash
+			ranTracer = false
 
 			var buf bytes.Buffer
 			stream := jsonstream.New(&buf)
 
-			ranTracer := false
-			var txInstructions []*tracer.EvmInstructionMetadata
-			var txExecutionState *tracer.EvmExecutionState
-
-			customTracer := tracer.NewTracerHooks(
-				func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
-					ranTracer = true
-					txInstructions = newTracer.GetInstructions()
-					txExecutionState = newTracer.GetExecutionState()
-
-					fmt.Printf("Transaction %d generated %d instructions\n", i+1, len(txInstructions))
-
-					transpiler := transpiler.NewTranspiler()
-					_, err := transpiler.ProcessExecution(txInstructions, txExecutionState)
-					if err != nil {
-						return nil, fmt.Errorf("failed to transpile transaction %s: %v", txHash.String(), err)
-					}
-
-					assembly := transpiler.ToAssembly()
-					content, err := assembly.ToToolChainCompatibleAssembly()
-					if err != nil {
-						return nil, fmt.Errorf("failed to generate assembly for transaction %s: %v", txHash.String(), err)
-					}
-
-					debugFile := fmt.Sprintf("debug_mappings_tx_%d.json", i+1)
-					err = transpiler.SaveDebugMappings(debugFile)
-					if err != nil {
-						fmt.Printf("Warning: Failed to write debug mappings to %s: %v\n", debugFile, err)
-					} else {
-						fmt.Printf("Debug mappings written to: %s\n", debugFile)
-					}
-
-					if debugAssembly {
-						assemblyFile := fmt.Sprintf("transpiled_tx_%d.s", i+1)
-						err := os.WriteFile(assemblyFile, []byte(content), 0644)
-						if err != nil {
-							fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)
-						} else {
-							fmt.Printf("Transpiled assembly written to: %s\n", assemblyFile)
-						}
-					}
-
-					zkVm := prover.NewZkProver(content)
-					output, err := zkVm.Prove()
-					if err != nil {
-						return nil, fmt.Errorf("failed to prove transaction %s: %v", txHash.String(), err)
-					}
-
-					result := ProofResult{
-						TransactionHash:  txHash.String(),
-						TransactionIndex: i + 1,
-						InstructionCount: len(txInstructions),
-						AppVK:            hex.EncodeToString(output.AppVK),
-						Proof:            hex.EncodeToString(output.Proof),
-					}
-
-					jsonData, err := json.MarshalIndent(result, "", "  ")
-					if err != nil {
-						return nil, fmt.Errorf("failed to marshal JSON for transaction %s: %v", txHash.String(), err)
-					}
-
-					outputFolder := fmt.Sprintf("%d", blockNum)
-					err = os.MkdirAll(outputFolder, 0755)
-					if err != nil {
-						fmt.Printf("Error creating directory %s: %v\n", outputFolder, err)
-					} else {
-						txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
-						err := os.WriteFile(txOutputFile, jsonData, 0644)
-						if err != nil {
-							fmt.Printf("Error writing to file %s: %v\n", txOutputFile, err)
-						} else {
-							fmt.Printf("Transaction %d results written to: %s\n", i+1, txOutputFile)
-						}
-					}
-
-					return &prover.ResultsFile{}, nil
-				},
-			)
-
-			tracers.RegisterLookup(true, customTracer)
 			tracerName := "Mine"
 			timeout := "10h"
 			err = debugAPI.TraceTransaction(
