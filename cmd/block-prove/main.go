@@ -188,7 +188,7 @@ func main() {
 			stream := jsonstream.New(&buf)
 
 			tracerName := "Mine"
-			timeout := "10h"
+			timeout := "2m"
 			err = debugAPI.TraceTransaction(
 				context.Background(),
 				txHash,

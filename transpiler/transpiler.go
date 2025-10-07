@@ -75,6 +75,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	startInstructionCount := len(tr.instructions)
 
 	if op.IsStackRestore {
+		// TODO: this logic should maybe not be here?
 		// Decrement call depth when returning from a call
 		if tr.currentDepth > 0 {
 			tr.currentDepth--
@@ -89,7 +90,6 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Operands: []string{},
 		})
 
-		// Record the mapping
 		generatedInstructions := tr.instructions[startInstructionCount:]
 		dataVars := tr.getDataSectionSnapshot()
 		tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
@@ -353,11 +353,18 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		varName := tr.dataSection.Add(state.BlockNumber)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
 	case vm.DIFFICULTY:
-		varName := tr.dataSection.Add(state.Difficulty)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "DIFFICULTY")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
 	case vm.GASLIMIT:
-		varName := tr.dataSection.Add(state.GasLimit)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "GASLIMIT")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
+
 	case vm.SELFBALANCE:
 		instructions, err := tr.resultFromTraceCall(resultStack, 0, "SELFBALANCE")
 		if err != nil {
@@ -365,8 +372,11 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		}
 		tr.instructions = append(tr.instructions, instructions...)
 	case vm.BASEFEE:
-		varName := tr.dataSection.Add(state.BaseFee)
-		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
+		instructions, err := tr.resultFromTraceCall(resultStack, 1, "BASEFEE")
+		if err != nil {
+			return err
+		}
+		tr.instructions = append(tr.instructions, instructions...)
 	case vm.BLOBHASH:
 		instructions, err := tr.resultFromTraceCall(resultStack, 1, "BLOBHASH")
 		if err != nil {
