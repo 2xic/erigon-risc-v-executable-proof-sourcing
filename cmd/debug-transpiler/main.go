@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/transpiler"
@@ -47,7 +49,11 @@ func main() {
 			right = mid - 1
 		} else {
 			zkVm := prover.NewZkProver(content)
-			_, err := zkVm.Prove()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			_, err := zkVm.Prove(ctx)
 			if err != nil {
 				fmt.Printf(" FAILED at proving: %v\n", err)
 				right = mid - 1

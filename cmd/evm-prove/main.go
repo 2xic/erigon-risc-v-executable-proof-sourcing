@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"erigon-transpiler-risc-v/prover"
 	"erigon-transpiler-risc-v/transpiler"
@@ -60,7 +62,10 @@ func main() {
 	fmt.Fprintf(os.Stderr, "Generating proof...\n")
 	zkVm := prover.NewZkProver(content)
 
-	output, err := zkVm.Prove()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	output, err := zkVm.Prove(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating proof: %v\n", err)
 		os.Exit(1)

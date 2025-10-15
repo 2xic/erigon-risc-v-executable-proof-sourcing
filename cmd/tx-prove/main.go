@@ -9,6 +9,7 @@ import (
 	"erigon-transpiler-risc-v/transpiler"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/erigontech/erigon-lib/common"
 	libcommon "github.com/erigontech/erigon-lib/common"
@@ -30,11 +31,13 @@ func main() {
 	var txHash string
 	var outputFile string
 	var debugAssembly bool
+	var skipProving bool
 	var assemblyFile string
 	cmd.Flags().StringVar(&txHash, "tx-hash", "0x04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
 	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled.s", "Assembly output file path (used with --debug-assembly)")
+	cmd.Flags().BoolVar(&skipProving, "skip-proving", false, "Skip proof generation")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -93,9 +96,18 @@ func main() {
 						fmt.Printf("Transpiled assembly written to: %s\n", assemblyFile)
 					}
 				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+				defer cancel()
 
+				if skipProving {
+					fmt.Println("Skipping proving as per --skip-proving flag.")
+					return &prover.ResultsFile{
+						AppVK: "skipped",
+						Proof: "skipped",
+					}, nil
+				}
 				zkVm := prover.NewZkProver(content)
-				output, err := zkVm.Prove()
+				output, err := zkVm.Prove(ctx)
 				if err != nil {
 					return nil, err
 				}
