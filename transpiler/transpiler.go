@@ -14,6 +14,10 @@ import (
 	"github.com/holiman/uint256"
 )
 
+type TranspilerConfig struct {
+	CallContextSeparation bool
+}
+
 type transpiler struct {
 	instructions    []prover.Instruction
 	dataSection     *DataSection
@@ -21,6 +25,7 @@ type transpiler struct {
 	enableSnapshots bool
 	debugMappings   []EvmToRiscVMapping
 	currentDepth    int
+	config          TranspilerConfig
 }
 
 type EvmToRiscVMapping struct {
@@ -31,6 +36,10 @@ type EvmToRiscVMapping struct {
 }
 
 func NewTranspiler() *transpiler {
+	return NewTranspilerWithConfig(TranspilerConfig{})
+}
+
+func NewTranspilerWithConfig(config TranspilerConfig) *transpiler {
 	return &transpiler{
 		instructions:    make([]prover.Instruction, 0),
 		dataSection:     NewDataSection(),
@@ -38,6 +47,7 @@ func NewTranspiler() *transpiler {
 		enableSnapshots: false,
 		debugMappings:   make([]EvmToRiscVMapping, 0),
 		currentDepth:    0,
+		config:          config,
 	}
 }
 
@@ -81,7 +91,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			tr.currentDepth--
 		}
 
-		tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
+		// tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
 		if op.Result != nil {
 			tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Result.Uint64()))...)
 		}
@@ -604,8 +614,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
-		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		if tr.config.CallContextSeparation {
+			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		}
+		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.DELEGATECALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -615,8 +627,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
-		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		if tr.config.CallContextSeparation {
+			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		}
+		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.STATICCALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -626,8 +640,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
-		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		if tr.config.CallContextSeparation {
+			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		}
+		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.CALLCODE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -638,8 +654,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		tr.instructions = append(tr.instructions, tr.saveStackContext()...)
-		tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
+		if tr.config.CallContextSeparation {
+			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+		}
+		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	default:
 		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
@@ -1031,6 +1049,28 @@ func (tr *transpiler) restoreStackContext() []prover.Instruction {
 	}
 }
 
+func (tr *transpiler) AddTransactionBoundary() {
+	tr.instructions = append(tr.instructions, prover.Instruction{
+		Name:     "mv",
+		Operands: []string{"sp", "s2"},
+	})
+	tr.instructions = append(tr.instructions, prover.Instruction{
+		Name:     "mv",
+		Operands: []string{"s3", "s2"},
+	})
+	tr.instructions = append(tr.instructions, prover.Instruction{
+		Name:     "EBREAK",
+		Operands: []string{},
+	})
+	tr.resetStateForNextTransaction()
+}
+
+func (tr *transpiler) resetStateForNextTransaction() {
+	tr.currentDepth = 0
+	//	tr.storageSection = NewStorageSection()
+	tr.debugMappings = make([]EvmToRiscVMapping, 0)
+}
+
 func (tr *transpiler) getStorageKey(arguments uint256.Int) string {
 	value := arguments.Hex()
 	return value
@@ -1130,7 +1170,8 @@ func (tr *transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs in
 }
 
 type DataSection struct {
-	values []*uint256.Int
+	values     []*uint256.Int
+	valueToVar map[string]string // Map value hex to variable name for deduplication
 }
 
 type StorageSection struct {
@@ -1139,7 +1180,8 @@ type StorageSection struct {
 
 func NewDataSection() *DataSection {
 	return &DataSection{
-		values: make([]*uint256.Int, 0),
+		values:     make([]*uint256.Int, 0),
+		valueToVar: make(map[string]string),
 	}
 }
 
@@ -1166,9 +1208,18 @@ func (ss *StorageSection) Load(dataSection *DataSection, key string) string {
 }
 
 func (ds *DataSection) Add(value *uint256.Int) string {
+	// Check if we already have this value to avoid duplicates
+	valueHex := value.Hex()
+	if varName, exists := ds.valueToVar[valueHex]; exists {
+		return varName
+	}
+
+	// Add new value
 	ds.values = append(ds.values, value)
 	index := len(ds.values) - 1
-	return fmt.Sprintf("data_var_%d", index)
+	varName := fmt.Sprintf("data_var_%d", index)
+	ds.valueToVar[valueHex] = varName
+	return varName
 }
 
 func (ds *DataSection) Iter() []struct {
