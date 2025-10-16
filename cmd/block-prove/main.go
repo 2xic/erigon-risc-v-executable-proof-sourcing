@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/jsonstream"
@@ -40,9 +41,11 @@ func main() {
 	var blockNumber string
 	var debugAssembly bool
 	var assemblyFile string
+	var transpileBlock bool
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
+	cmd.Flags().BoolVar(&transpileBlock, "transpile-block", true, "Transpile entire block as single unit with transaction boundaries")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if blockNumber == "" {
@@ -96,6 +99,10 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
+		if transpileBlock {
+			return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile)
+		}
+
 		// Transaction context for tracer callback
 		var currentTxIndex int
 		var currentTxHash common.Hash
@@ -123,7 +130,7 @@ func main() {
 				}
 
 				zkVm := prover.NewZkProver(content)
-				output, err := zkVm.Prove()
+				output, err := zkVm.Prove(ctx)
 				if err != nil {
 					return nil, fmt.Errorf("failed to prove transaction %s: %v", currentTxHash.String(), err)
 				}
@@ -238,5 +245,162 @@ func findDebug(apiList []rpc.API) *jsonrpc.DebugAPIImpl {
 			}
 		}
 	}
+	return nil
+}
+
+func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHash common.Hash) ([]*tracer.EvmInstructionMetadata, *tracer.EvmExecutionState, error) {
+	var tracerResult *tracer.StateTracer
+
+	customTracer := tracer.NewTracerHooks(
+		func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
+			tracerResult = newTracer
+			return &prover.ResultsFile{}, nil
+		},
+	)
+	tracers.RegisterLookup(false, customTracer)
+
+	var buf bytes.Buffer
+	stream := jsonstream.New(&buf)
+
+	tracerName := "Mine"
+	timeout := "2m"
+	err := debugAPI.TraceTransaction(
+		ctx,
+		txHash,
+		&config.TraceConfig{
+			Tracer:  &tracerName,
+			Timeout: &timeout,
+		},
+		stream,
+	)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if tracerResult == nil {
+		return nil, nil, fmt.Errorf("no tracer result received")
+	}
+
+	return tracerResult.GetInstructions(), tracerResult.GetExecutionState(), nil
+}
+
+func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string) error {
+	blockTranspiler := transpiler.NewTestTranspiler()
+
+	fmt.Printf("Processing block %d with %d transactions sequentially...\n", blockNum, len(txs))
+
+	var allTxResults []ProofResult
+
+	for i, txInterface := range txs {
+		if i > 11 {
+			break
+		}
+
+		tx, ok := txInterface.(*ethapi.RPCTransaction)
+		if !ok {
+			fmt.Printf("Skipping invalid transaction %d (type: %T)\n", i+1, txInterface)
+			continue
+		}
+
+		fmt.Printf("Tracing transaction %d/%d: %s\n", i+1, len(txs), tx.Hash.String())
+
+		instructions, state, err := traceTransaction(ctx, debugAPI, tx.Hash)
+		if err != nil {
+			fmt.Printf("Failed to trace transaction %d: %v\n", i+1, err)
+			continue
+		}
+
+		fmt.Printf("Transpiling transaction %d/%d with %d instructions\n",
+			i+1, len(txs), len(instructions))
+
+		_, err = blockTranspiler.ProcessExecution(instructions, state)
+		if err != nil {
+			return fmt.Errorf("failed to transpile transaction %s: %v", tx.Hash.String(), err)
+		}
+
+		if i < len(txs)-1 {
+			blockTranspiler.AddTransactionBoundary()
+		}
+
+		allTxResults = append(allTxResults, ProofResult{
+			TransactionHash:  tx.Hash.String(),
+			TransactionIndex: i + 1,
+			InstructionCount: len(instructions),
+		})
+	}
+
+	// Generate assembly for the entire block
+	fmt.Printf("Generating assembly for block...\n")
+	assemblyStart := time.Now()
+	assembly := blockTranspiler.ToAssembly()
+	content, err := assembly.ToToolChainCompatibleAssembly()
+	assemblyTime := time.Since(assemblyStart)
+	fmt.Printf("Assembly generation completed in %v\n", assemblyTime)
+
+	if err != nil {
+		return fmt.Errorf("failed to generate assembly for block: %v", err)
+	}
+
+	// Write debug assembly if requested
+	if debugAssembly {
+		err := os.WriteFile(assemblyFile, []byte(content), 0644)
+		if err != nil {
+			fmt.Printf("Error writing assembly file %s: %v\n", assemblyFile, err)
+		} else {
+			fmt.Printf("Block assembly written to: %s\n", assemblyFile)
+		}
+	}
+
+	// Generate proof for the entire block
+	fmt.Printf("Starting ZK proof generation for block...\n")
+	proveStart := time.Now()
+	zkVm := prover.NewZkProver(content)
+	output, err := zkVm.Prove(ctx)
+	proveTime := time.Since(proveStart)
+	fmt.Printf("ZK proof generation completed in %v\n", proveTime)
+
+	if err != nil {
+		return fmt.Errorf("failed to prove block: %v", err)
+	}
+
+	// Create block result
+	blockResult := struct {
+		BlockNumber       uint64        `json:"block_number"`
+		TransactionCount  int           `json:"transaction_count"`
+		Transactions      []ProofResult `json:"transactions"`
+		TotalInstructions int           `json:"total_instructions"`
+		AppVK             string        `json:"app_vk"`
+		Proof             string        `json:"proof"`
+	}{
+		BlockNumber:      blockNum,
+		TransactionCount: len(allTxResults),
+		Transactions:     allTxResults,
+		AppVK:            hex.EncodeToString(output.AppVK),
+		Proof:            hex.EncodeToString(output.Proof),
+	}
+
+	// Calculate total instructions
+	for _, txResult := range allTxResults {
+		blockResult.TotalInstructions += txResult.InstructionCount
+	}
+
+	jsonData, err := json.MarshalIndent(blockResult, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON for block: %v", err)
+	}
+
+	// Write block result
+	outputFile := fmt.Sprintf("block_%d.json", blockNum)
+	err = os.WriteFile(outputFile, jsonData, 0644)
+	if err != nil {
+		fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
+	} else {
+		fmt.Printf("Block %d results written to: %s\n", blockNum, outputFile)
+	}
+
+	fmt.Printf("Completed block transpilation with %d transactions and %d total instructions\n",
+		len(allTxResults), blockResult.TotalInstructions)
+
 	return nil
 }
