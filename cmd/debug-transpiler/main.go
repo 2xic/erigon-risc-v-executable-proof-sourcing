@@ -48,12 +48,17 @@ func main() {
 			fmt.Printf(" FAILED at assembly generation: %v\n", err)
 			right = mid - 1
 		} else {
+			start := time.Now()
 			zkVm := prover.NewZkProver(content)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 
 			_, err := zkVm.Prove(ctx)
+
+			end := time.Now()
+			duration := end.Sub(start)
+			fmt.Printf(" Proving took %s...", duration.String())
 			if err != nil {
 				fmt.Printf(" FAILED at proving: %v\n", err)
 				right = mid - 1

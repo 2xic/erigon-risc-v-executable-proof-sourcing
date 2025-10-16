@@ -1,6 +1,7 @@
 package transpiler
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -48,7 +49,7 @@ func TestAddOpcode(t *testing.T) {
 	content, err := assembly.ToToolChainCompatibleAssembly()
 	assert.NoError(t, err)
 	zkVm := prover.NewZkProver(content)
-	output, err := zkVm.TestRun()
+	output, err := zkVm.TestRun(context.Background())
 	assert.NoError(t, err)
 	// All zero as we don't write any of the output.
 	assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)

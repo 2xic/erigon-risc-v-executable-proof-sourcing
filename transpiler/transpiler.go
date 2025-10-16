@@ -15,7 +15,9 @@ import (
 )
 
 type TranspilerConfig struct {
-	CallContextSeparation bool
+	DisableCallContextSeparation bool
+	DisableHostOptimizedOpcodes  bool
+	DisableMCopyOperations       bool
 }
 
 type transpiler struct {
@@ -35,8 +37,16 @@ type EvmToRiscVMapping struct {
 	CallDepth         int                   `json:"call_depth"`
 }
 
-func NewTranspiler() *transpiler {
+func NewTestTranspiler() *transpiler {
 	return NewTranspilerWithConfig(TranspilerConfig{})
+}
+
+func NewTranspiler() *transpiler {
+	return NewTranspilerWithConfig(TranspilerConfig{
+		DisableCallContextSeparation: true,
+		DisableHostOptimizedOpcodes:  true,
+		DisableMCopyOperations:       true,
+	})
 }
 
 func NewTranspilerWithConfig(config TranspilerConfig) *transpiler {
@@ -91,7 +101,9 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			tr.currentDepth--
 		}
 
-		// tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
+		if !tr.config.DisableCallContextSeparation {
+			tr.instructions = append(tr.instructions, tr.restoreStackContext()...)
+		}
 		if op.Result != nil {
 			tr.instructions = append(tr.instructions, tr.pushOpcode(int32(op.Result.Uint64()))...)
 		}
@@ -115,13 +127,13 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 
 	switch op.Opcode {
 	case vm.ADD:
-		tr.instructions = append(tr.instructions, tr.add256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.add256Call, 2)...)
 	case vm.MUL:
-		tr.instructions = append(tr.instructions, tr.mul256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.mul256Call, 2)...)
 	case vm.SUB:
-		tr.instructions = append(tr.instructions, tr.sub256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.sub256Call, 2)...)
 	case vm.DIV:
-		tr.instructions = append(tr.instructions, tr.div256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.div256Call, 2)...)
 	case vm.SDIV:
 		sdivInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SDIV")
 		if err != nil {
@@ -165,21 +177,21 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		}
 		tr.instructions = append(tr.instructions, signextendInstructions...)
 	case vm.AND:
-		tr.instructions = append(tr.instructions, tr.and256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.and256Call, 2)...)
 	case vm.OR:
-		tr.instructions = append(tr.instructions, tr.or256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.or256Call, 2)...)
 	case vm.XOR:
-		tr.instructions = append(tr.instructions, tr.xor256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.xor256Call, 2)...)
 	case vm.EQ:
-		tr.instructions = append(tr.instructions, tr.eq256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.eq256Call, 2)...)
 	case vm.SLT:
-		tr.instructions = append(tr.instructions, tr.slt256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.slt256Call, 2)...)
 	case vm.SHR:
-		tr.instructions = append(tr.instructions, tr.shr256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.shr256Call, 2)...)
 	case vm.SHL:
-		tr.instructions = append(tr.instructions, tr.shl256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.shl256Call, 2)...)
 	case vm.GT:
-		tr.instructions = append(tr.instructions, tr.gt256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.gt256Call, 2)...)
 	case vm.SGT:
 		sgtInstructions, err := tr.resultFromTraceCall(resultStack, 2, "SGT")
 		if err != nil {
@@ -187,9 +199,9 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		}
 		tr.instructions = append(tr.instructions, sgtInstructions...)
 	case vm.LT:
-		tr.instructions = append(tr.instructions, tr.lt256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.lt256Call, 2)...)
 	case vm.NOT:
-		tr.instructions = append(tr.instructions, tr.not256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.not256Call, 1)...)
 	case vm.BYTE:
 		byteInstructions, err := tr.resultFromTraceCall(resultStack, 2, "BYTE")
 		if err != nil {
@@ -319,7 +331,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		})
 	case vm.ISZERO:
 		tr.instructions = append(tr.instructions, tr.pushOpcode(0)...)
-		tr.instructions = append(tr.instructions, tr.eq256Call()...)
+		tr.instructions = append(tr.instructions, tr.hostOptimizedOpcode(tr.eq256Call, 2)...)
 	case vm.CALLVALUE:
 		varName := tr.dataSection.Add(state.CallValue)
 		tr.instructions = append(tr.instructions, tr.loadFromDataSection(varName)...)
@@ -597,14 +609,18 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		}
 		tr.instructions = append(tr.instructions, instructions...)
 	case vm.MCOPY:
+		// Pop the 3 stack arguments (destOffset, srcOffset, length)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		// TODO: implement proper mcopy operation
-		// destOffset := op.StackSnapshot[2].Uint64()
-		// srcOffset := op.StackSnapshot[1].Uint64()
-		// length := op.StackSnapshot[0].Uint64()
-		// tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
+
+		if !tr.config.DisableMCopyOperations {
+			// TODO: implement proper mcopy operation
+			destOffset := op.StackSnapshot[2].Uint64()
+			srcOffset := op.StackSnapshot[1].Uint64()
+			length := op.StackSnapshot[0].Uint64()
+			tr.instructions = append(tr.instructions, tr.mcopyCall(destOffset, srcOffset, length)...)
+		}
 	case vm.CALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -614,10 +630,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if tr.config.CallContextSeparation {
+		if !tr.config.DisableCallContextSeparation {
 			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+			tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		}
-		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.DELEGATECALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -627,10 +643,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if tr.config.CallContextSeparation {
+		if !tr.config.DisableCallContextSeparation {
 			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+			tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		}
-		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.STATICCALL:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -640,10 +656,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if tr.config.CallContextSeparation {
+		if !tr.config.DisableCallContextSeparation {
 			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+			tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		}
-		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	case vm.CALLCODE:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
@@ -654,10 +670,10 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 
-		if tr.config.CallContextSeparation {
+		if !tr.config.DisableCallContextSeparation {
 			tr.instructions = append(tr.instructions, tr.saveStackContext()...)
+			tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		}
-		// tr.instructions = append(tr.instructions, tr.createNewStackFrame()...)
 		tr.currentDepth++
 	default:
 		return fmt.Errorf("unimplemented opcode: 0x%02x", uint64(op.Opcode))
@@ -1148,6 +1164,19 @@ func (tr *transpiler) getDataSectionSnapshot() []prover.DataVariable {
 		})
 	}
 	return dataVars
+}
+
+func (tr *transpiler) hostOptimizedOpcode(originalFunc func() []prover.Instruction, numStackArgs int) []prover.Instruction {
+	if tr.config.DisableHostOptimizedOpcodes {
+		var instructions []prover.Instruction
+		for i := 0; i < numStackArgs; i++ {
+			instructions = append(instructions, tr.popStack()...)
+		}
+		// Push dummy value (0)
+		instructions = append(instructions, tr.pushOpcode(0)...)
+		return instructions
+	}
+	return originalFunc()
 }
 
 func (tr *transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs int, opName string) ([]prover.Instruction, error) {
