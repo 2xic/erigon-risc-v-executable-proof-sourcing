@@ -18,9 +18,10 @@ type TranspilerConfig struct {
 	DisableCallContextSeparation bool
 	DisableHostOptimizedOpcodes  bool
 	DisableMCopyOperations       bool
+	DisableDebugMappings         bool
 }
 
-type transpiler struct {
+type Transpiler struct {
 	instructions    []prover.Instruction
 	dataSection     *DataSection
 	storageSection  *StorageSection
@@ -28,6 +29,7 @@ type transpiler struct {
 	debugMappings   []EvmToRiscVMapping
 	currentDepth    int
 	config          TranspilerConfig
+	outputWriter    func([]prover.Instruction) error // Optional streaming output
 }
 
 type EvmToRiscVMapping struct {
@@ -37,20 +39,21 @@ type EvmToRiscVMapping struct {
 	CallDepth         int                   `json:"call_depth"`
 }
 
-func NewTestTranspiler() *transpiler {
+func NewTestTranspiler() *Transpiler {
 	return NewTranspilerWithConfig(TranspilerConfig{})
 }
 
-func NewTranspiler() *transpiler {
+func NewTranspiler() *Transpiler {
 	return NewTranspilerWithConfig(TranspilerConfig{
 		DisableCallContextSeparation: true,
 		DisableHostOptimizedOpcodes:  true,
 		DisableMCopyOperations:       true,
+		DisableDebugMappings:         false,
 	})
 }
 
-func NewTranspilerWithConfig(config TranspilerConfig) *transpiler {
-	return &transpiler{
+func NewTranspilerWithConfig(config TranspilerConfig) *Transpiler {
+	return &Transpiler{
 		instructions:    make([]prover.Instruction, 0),
 		dataSection:     NewDataSection(),
 		storageSection:  NewStorageSection(),
@@ -58,14 +61,28 @@ func NewTranspilerWithConfig(config TranspilerConfig) *transpiler {
 		debugMappings:   make([]EvmToRiscVMapping, 0),
 		currentDepth:    0,
 		config:          config,
+		outputWriter:    nil,
 	}
 }
 
-func (tr *transpiler) EnableSnapshots() {
+func NewStreamingTranspilerWithConfig(config TranspilerConfig, outputWriter func([]prover.Instruction) error) *Transpiler {
+	return &Transpiler{
+		instructions:    make([]prover.Instruction, 0, 1000), // Small buffer
+		dataSection:     NewDataSection(),
+		storageSection:  NewStorageSection(),
+		enableSnapshots: false,
+		debugMappings:   make([]EvmToRiscVMapping, 0),
+		currentDepth:    0,
+		config:          config,
+		outputWriter:    outputWriter,
+	}
+}
+
+func (tr *Transpiler) EnableSnapshots() {
 	tr.enableSnapshots = true
 }
 
-func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMetadata, executionState *tracer.EvmExecutionState) (EvmStackSnapshot, error) {
+func (tr *Transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMetadata, executionState *tracer.EvmExecutionState) (EvmStackSnapshot, error) {
 	snapshot := EvmStackSnapshot{
 		Snapshots: make([][]uint256.Int, 0),
 	}
@@ -87,11 +104,11 @@ func (tr *transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 	return snapshot, nil
 }
 
-func (tr *transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) error {
+func (tr *Transpiler) AddInstruction(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState) error {
 	return tr.AddInstructionWithResult(op, state, nil)
 }
 
-func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack *[]uint256.Int) error {
+func (tr *Transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata, state *tracer.EvmExecutionState, resultStack *[]uint256.Int) error {
 	startInstructionCount := len(tr.instructions)
 
 	if op.IsStackRestore {
@@ -112,15 +129,17 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 			Operands: []string{},
 		})
 
-		generatedInstructions := tr.instructions[startInstructionCount:]
-		dataVars := tr.getDataSectionSnapshot()
-		tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
-			EvmOpcode:         "STACK_RESTORE",
-			RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
-			DataVariables:     dataVars,
-			CallDepth:         tr.currentDepth,
-		})
-		copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
+		if !tr.config.DisableDebugMappings {
+			generatedInstructions := tr.instructions[startInstructionCount:]
+			dataVars := tr.getDataSectionSnapshot()
+			tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
+				EvmOpcode:         "STACK_RESTORE",
+				RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
+				DataVariables:     dataVars,
+				CallDepth:         tr.currentDepth,
+			})
+			copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
+		}
 
 		return nil
 	}
@@ -557,10 +576,14 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 	case vm.RETURN:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "addi",
-			Operands: []string{"sp", "s3", "0"},
-		})
+
+		if !tr.config.DisableCallContextSeparation {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "addi",
+				Operands: []string{"sp", "s3", "0"},
+			})
+		}
+
 		// Only add EBREAK when in nested call context (depth > 0)
 		if tr.currentDepth > 0 {
 			tr.instructions = append(tr.instructions, prover.Instruction{
@@ -568,14 +591,17 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 				Operands: []string{},
 			})
 		}
+		tr.storeDebugInfo(startInstructionCount, op.Opcode)
 		return nil
 	case vm.REVERT:
 		tr.instructions = append(tr.instructions, tr.popStack()...)
 		tr.instructions = append(tr.instructions, tr.popStack()...)
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "addi",
-			Operands: []string{"sp", "s3", "0"},
-		})
+		if !tr.config.DisableCallContextSeparation {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "addi",
+				Operands: []string{"sp", "s3", "0"},
+			})
+		}
 		// Only add EBREAK when in nested call context (depth > 0)
 		if tr.currentDepth > 0 {
 			tr.instructions = append(tr.instructions, prover.Instruction{
@@ -583,12 +609,15 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 				Operands: []string{},
 			})
 		}
+		tr.storeDebugInfo(startInstructionCount, op.Opcode)
 		return nil
 	case vm.INVALID:
-		tr.instructions = append(tr.instructions, prover.Instruction{
-			Name:     "addi",
-			Operands: []string{"sp", "s3", "0"},
-		})
+		if !tr.config.DisableCallContextSeparation {
+			tr.instructions = append(tr.instructions, prover.Instruction{
+				Name:     "addi",
+				Operands: []string{"sp", "s3", "0"},
+			})
+		}
 		// Only add EBREAK when in nested call context (depth > 0)
 		if tr.currentDepth > 0 {
 			tr.instructions = append(tr.instructions, prover.Instruction{
@@ -596,6 +625,7 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 				Operands: []string{},
 			})
 		}
+		tr.storeDebugInfo(startInstructionCount, op.Opcode)
 		return nil
 	case vm.CALLER:
 		callerBytes := state.Caller.Bytes()
@@ -684,21 +714,27 @@ func (tr *transpiler) AddInstructionWithResult(op *tracer.EvmInstructionMetadata
 		Operands: []string{},
 	})
 
-	// Record the mapping for this EVM opcode
-	generatedInstructions := tr.instructions[startInstructionCount:]
-	dataVars := tr.getDataSectionSnapshot()
-	tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
-		EvmOpcode:         op.Opcode.String(),
-		RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
-		DataVariables:     dataVars,
-		CallDepth:         tr.currentDepth,
-	})
-	copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
+	tr.storeDebugInfo(startInstructionCount, op.Opcode)
 
 	return nil
 }
 
-func (tr *transpiler) pushOpcode(value int32) []prover.Instruction {
+func (tr *Transpiler) storeDebugInfo(startInstructionCount int, op vm.OpCode) {
+	// Record the mapping for this EVM opcode (only if debug mappings are enabled)
+	if !tr.config.DisableDebugMappings {
+		generatedInstructions := tr.instructions[startInstructionCount:]
+		dataVars := tr.getDataSectionSnapshot()
+		tr.debugMappings = append(tr.debugMappings, EvmToRiscVMapping{
+			EvmOpcode:         op.String(),
+			RiscVInstructions: make([]prover.Instruction, len(generatedInstructions)),
+			DataVariables:     dataVars,
+			CallDepth:         tr.currentDepth,
+		})
+		copy(tr.debugMappings[len(tr.debugMappings)-1].RiscVInstructions, generatedInstructions)
+	}
+}
+
+func (tr *Transpiler) pushOpcode(value int32) []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
@@ -715,7 +751,7 @@ func (tr *transpiler) pushOpcode(value int32) []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
+func (tr *Transpiler) DupOpcode(index uint64) []prover.Instruction {
 	spIndex := (32 * (index - 1))
 	return []prover.Instruction{
 		{
@@ -733,7 +769,7 @@ func (tr *transpiler) DupOpcode(index uint64) []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
+func (tr *Transpiler) SwapOpcode(index uint64) []prover.Instruction {
 	spIndex := (32 * (index))
 	return []prover.Instruction{
 		{
@@ -755,7 +791,7 @@ func (tr *transpiler) SwapOpcode(index uint64) []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) add256Call() []prover.Instruction {
+func (tr *Transpiler) add256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -763,7 +799,7 @@ func (tr *transpiler) add256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) mul256Call() []prover.Instruction {
+func (tr *Transpiler) mul256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -771,7 +807,7 @@ func (tr *transpiler) mul256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) sub256Call() []prover.Instruction {
+func (tr *Transpiler) sub256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -779,7 +815,7 @@ func (tr *transpiler) sub256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) div256Call() []prover.Instruction {
+func (tr *Transpiler) div256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -787,7 +823,7 @@ func (tr *transpiler) div256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) and256Call() []prover.Instruction {
+func (tr *Transpiler) and256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -795,7 +831,7 @@ func (tr *transpiler) and256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) or256Call() []prover.Instruction {
+func (tr *Transpiler) or256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -803,7 +839,7 @@ func (tr *transpiler) or256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) xor256Call() []prover.Instruction {
+func (tr *Transpiler) xor256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -811,14 +847,14 @@ func (tr *transpiler) xor256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) not256Call() []prover.Instruction {
+func (tr *Transpiler) not256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "call", Operands: []string{"not256_stack_scratch"}},
 	}
 }
 
-func (tr *transpiler) shr256Call() []prover.Instruction {
+func (tr *Transpiler) shr256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "32"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "0"}},
@@ -826,7 +862,7 @@ func (tr *transpiler) shr256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) shl256Call() []prover.Instruction {
+func (tr *Transpiler) shl256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "32"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "0"}},
@@ -834,7 +870,7 @@ func (tr *transpiler) shl256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) slt256Call() []prover.Instruction {
+func (tr *Transpiler) slt256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -842,7 +878,7 @@ func (tr *transpiler) slt256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) eq256Call() []prover.Instruction {
+func (tr *Transpiler) eq256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -850,7 +886,7 @@ func (tr *transpiler) eq256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) gt256Call() []prover.Instruction {
+func (tr *Transpiler) gt256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -858,7 +894,7 @@ func (tr *transpiler) gt256Call() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) lt256Call() []prover.Instruction {
+func (tr *Transpiler) lt256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -867,7 +903,7 @@ func (tr *transpiler) lt256Call() []prover.Instruction {
 }
 
 // nolint:unused
-func (tr *transpiler) mstore256Call() []prover.Instruction {
+func (tr *Transpiler) mstore256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "addi", Operands: []string{"a1", "sp", "32"}},
@@ -876,7 +912,7 @@ func (tr *transpiler) mstore256Call() []prover.Instruction {
 }
 
 // nolint:unused
-func (tr *transpiler) mload256Call() []prover.Instruction {
+func (tr *Transpiler) mload256Call() []prover.Instruction {
 	return []prover.Instruction{
 		{Name: "addi", Operands: []string{"a0", "sp", "0"}},
 		{Name: "call", Operands: []string{"mload256_stack_scratch"}},
@@ -884,7 +920,7 @@ func (tr *transpiler) mload256Call() []prover.Instruction {
 }
 
 // nolint:unused
-func (tr *transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.Instruction {
+func (tr *Transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.Instruction {
 	var instructions []prover.Instruction
 
 	if length == 0 {
@@ -903,7 +939,7 @@ func (tr *transpiler) mcopyCall(destOffset, srcOffset, length uint64) []prover.I
 	return instructions
 }
 
-func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.Instruction {
+func (tr *Transpiler) calldataloadCall(offset uint64, callData []byte) []prover.Instruction {
 	data := make([]byte, 32)
 	if offset < uint64(len(callData)) {
 		end := offset + 32
@@ -920,7 +956,7 @@ func (tr *transpiler) calldataloadCall(offset uint64, callData []byte) []prover.
 }
 
 // nolint:unused
-func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeData []byte) []prover.Instruction {
+func (tr *Transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeData []byte) []prover.Instruction {
 	var instructions []prover.Instruction
 
 	codeToCopy := make([]byte, length)
@@ -959,7 +995,7 @@ func (tr *transpiler) codecopyCall(destOffset, codeOffset, length uint64, codeDa
 }
 
 // nolint:unused
-func (tr *transpiler) returndatacopyCall(destOffset, returnDataOffset, length uint64, returnData []byte) []prover.Instruction {
+func (tr *Transpiler) returndatacopyCall(destOffset, returnDataOffset, length uint64, returnData []byte) []prover.Instruction {
 	var instructions []prover.Instruction
 
 	returnDataToCopy := make([]byte, length)
@@ -997,7 +1033,7 @@ func (tr *transpiler) returndatacopyCall(destOffset, returnDataOffset, length ui
 	return instructions
 }
 
-func (tr *transpiler) popStack() []prover.Instruction {
+func (tr *Transpiler) popStack() []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
@@ -1006,7 +1042,7 @@ func (tr *transpiler) popStack() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) saveStackContext() []prover.Instruction {
+func (tr *Transpiler) saveStackContext() []prover.Instruction {
 	return []prover.Instruction{
 
 		{
@@ -1029,7 +1065,7 @@ func (tr *transpiler) saveStackContext() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) createNewStackFrame() []prover.Instruction {
+func (tr *Transpiler) createNewStackFrame() []prover.Instruction {
 	return []prover.Instruction{
 		{
 			Name:     "addi",
@@ -1042,7 +1078,7 @@ func (tr *transpiler) createNewStackFrame() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) restoreStackContext() []prover.Instruction {
+func (tr *Transpiler) restoreStackContext() []prover.Instruction {
 	return []prover.Instruction{
 
 		{
@@ -1065,7 +1101,7 @@ func (tr *transpiler) restoreStackContext() []prover.Instruction {
 	}
 }
 
-func (tr *transpiler) AddTransactionBoundary() {
+func (tr *Transpiler) AddTransactionBoundary() {
 	tr.instructions = append(tr.instructions, prover.Instruction{
 		Name:     "mv",
 		Operands: []string{"sp", "s2"},
@@ -1081,22 +1117,29 @@ func (tr *transpiler) AddTransactionBoundary() {
 	tr.resetStateForNextTransaction()
 }
 
-func (tr *transpiler) resetStateForNextTransaction() {
+func (tr *Transpiler) resetStateForNextTransaction() {
 	tr.currentDepth = 0
-	//	tr.storageSection = NewStorageSection()
+	tr.storageSection = NewStorageSection() // Reset storage between transactions
+	tr.debugMappings = make([]EvmToRiscVMapping, 0)
+	// Note: We keep dataSection and instructions as they accumulate across transactions in a block
+}
+
+// ClearInstructionsAndDebugMappings clears memory-intensive slices to prevent OOM
+func (tr *Transpiler) ClearInstructionsAndDebugMappings() {
+	tr.instructions = make([]prover.Instruction, 0)
 	tr.debugMappings = make([]EvmToRiscVMapping, 0)
 }
 
-func (tr *transpiler) getStorageKey(arguments uint256.Int) string {
+func (tr *Transpiler) getStorageKey(arguments uint256.Int) string {
 	value := arguments.Hex()
 	return value
 }
 
-func (tr *transpiler) getStorageValue(arguments uint256.Int) *uint256.Int {
+func (tr *Transpiler) getStorageValue(arguments uint256.Int) *uint256.Int {
 	return &arguments
 }
 
-func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
+func (tr *Transpiler) loadFromDataSection(varName string) []prover.Instruction {
 	instructions := []prover.Instruction{
 		{
 			Name:     "addi",
@@ -1127,7 +1170,7 @@ func (tr *transpiler) loadFromDataSection(varName string) []prover.Instruction {
 	return instructions
 }
 
-func (tr *transpiler) ToAssembly() *prover.AssemblyFile {
+func (tr *Transpiler) ToAssembly() *prover.AssemblyFile {
 	// Convert data section to prover format
 	dataSection := make([]prover.DataVariable, 0)
 	for _, dataVar := range tr.dataSection.Iter() {
@@ -1143,11 +1186,11 @@ func (tr *transpiler) ToAssembly() *prover.AssemblyFile {
 	}
 }
 
-func (tr *transpiler) GetDebugMappings() []EvmToRiscVMapping {
+func (tr *Transpiler) GetDebugMappings() []EvmToRiscVMapping {
 	return tr.debugMappings
 }
 
-func (tr *transpiler) SaveDebugMappings(filename string) error {
+func (tr *Transpiler) SaveDebugMappings(filename string) error {
 	data, err := json.MarshalIndent(tr.debugMappings, "", "  ")
 	if err != nil {
 		return err
@@ -1155,7 +1198,7 @@ func (tr *transpiler) SaveDebugMappings(filename string) error {
 	return os.WriteFile(filename, data, 0644)
 }
 
-func (tr *transpiler) getDataSectionSnapshot() []prover.DataVariable {
+func (tr *Transpiler) getDataSectionSnapshot() []prover.DataVariable {
 	dataVars := make([]prover.DataVariable, 0)
 	for _, dataVar := range tr.dataSection.Iter() {
 		dataVars = append(dataVars, prover.DataVariable{
@@ -1166,7 +1209,7 @@ func (tr *transpiler) getDataSectionSnapshot() []prover.DataVariable {
 	return dataVars
 }
 
-func (tr *transpiler) hostOptimizedOpcode(originalFunc func() []prover.Instruction, numStackArgs int) []prover.Instruction {
+func (tr *Transpiler) hostOptimizedOpcode(originalFunc func() []prover.Instruction, numStackArgs int) []prover.Instruction {
 	if tr.config.DisableHostOptimizedOpcodes {
 		var instructions []prover.Instruction
 		for i := 0; i < numStackArgs; i++ {
@@ -1179,7 +1222,7 @@ func (tr *transpiler) hostOptimizedOpcode(originalFunc func() []prover.Instructi
 	return originalFunc()
 }
 
-func (tr *transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs int, opName string) ([]prover.Instruction, error) {
+func (tr *Transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs int, opName string) ([]prover.Instruction, error) {
 	var instructions []prover.Instruction
 
 	for i := 0; i < numArgs; i++ {
@@ -1199,8 +1242,9 @@ func (tr *transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs in
 }
 
 type DataSection struct {
-	values     []*uint256.Int
-	valueToVar map[string]string // Map value hex to variable name for deduplication
+	values []*uint256.Int
+	// Map value hex to variable name for deduplication
+	valueToVar map[string]string
 }
 
 type StorageSection struct {

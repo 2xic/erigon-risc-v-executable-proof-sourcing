@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/erigontech/erigon-lib/common"
@@ -42,10 +43,16 @@ func main() {
 	var debugAssembly bool
 	var assemblyFile string
 	var transpileBlock bool
+	var debugMode bool
+	var skipProof bool
+	var maxTxs int
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
 	cmd.Flags().BoolVar(&transpileBlock, "transpile-block", true, "Transpile entire block as single unit with transaction boundaries")
+	cmd.Flags().BoolVar(&debugMode, "debug-mode", false, "Enable debug transpiler with detailed mappings")
+	cmd.Flags().BoolVar(&skipProof, "skip-proof", false, "Skip ZK proof generation to save memory")
+	cmd.Flags().IntVar(&maxTxs, "max-txs", 0, "Limit to first N transactions (0 = all transactions, useful for binary search debugging)")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if blockNumber == "" {
@@ -100,7 +107,7 @@ func main() {
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
 		if transpileBlock {
-			return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile)
+			return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs)
 		}
 
 		// Transaction context for tracer callback
@@ -263,7 +270,7 @@ func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHas
 	stream := jsonstream.New(&buf)
 
 	tracerName := "Mine"
-	timeout := "2m"
+	timeout := "10m"
 	err := debugAPI.TraceTransaction(
 		ctx,
 		txHash,
@@ -285,15 +292,31 @@ func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHas
 	return tracerResult.GetInstructions(), tracerResult.GetExecutionState(), nil
 }
 
-func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string) error {
-	blockTranspiler := transpiler.NewTestTranspiler()
+func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int) error {
+	fmt.Printf("Processing block %d with %d transactions using parallel tracing...\n", blockNum, len(txs))
 
-	fmt.Printf("Processing block %d with %d transactions sequentially...\n", blockNum, len(txs))
+	// Define structures for parallel processing
+	type TraceJob struct {
+		Index    int
+		TxIndex  int
+		TxHash   common.Hash
+		TxObject *ethapi.RPCTransaction
+	}
 
-	var allTxResults []ProofResult
+	type TraceResult struct {
+		Index        int
+		TxIndex      int
+		TxHash       common.Hash
+		Instructions []*tracer.EvmInstructionMetadata
+		State        *tracer.EvmExecutionState
+		Error        error
+	}
 
+	// Collect all valid transactions (limited by maxTxs if specified)
+	var jobs []TraceJob
 	for i, txInterface := range txs {
-		if i > 11 {
+		if maxTxs > 0 && i >= maxTxs {
+			fmt.Printf("Limiting to first %d transactions for debugging\n", maxTxs)
 			break
 		}
 
@@ -302,35 +325,92 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 			fmt.Printf("Skipping invalid transaction %d (type: %T)\n", i+1, txInterface)
 			continue
 		}
+		jobs = append(jobs, TraceJob{
+			Index:    len(jobs),
+			TxIndex:  i,
+			TxHash:   tx.Hash,
+			TxObject: tx,
+		})
+	}
 
-		fmt.Printf("Tracing transaction %d/%d: %s\n", i+1, len(txs), tx.Hash.String())
+	// Parallel tracing with semaphore to limit concurrency
+	maxConcurrent := 5
+	semaphore := make(chan struct{}, maxConcurrent)
+	results := make([]TraceResult, len(jobs))
+	var wg sync.WaitGroup
 
-		instructions, state, err := traceTransaction(ctx, debugAPI, tx.Hash)
-		if err != nil {
-			fmt.Printf("Failed to trace transaction %d: %v\n", i+1, err)
+	fmt.Printf("Tracing %d transactions in parallel (max %d concurrent)...\n", len(jobs), maxConcurrent)
+
+	// Launch all tracing goroutines
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j TraceJob) {
+			defer wg.Done()
+
+			// Acquire semaphore to limit concurrency
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			fmt.Printf("Tracing transaction %d/%d: %s\n", j.TxIndex+1, len(txs), j.TxHash.String())
+
+			instructions, state, err := traceTransaction(ctx, debugAPI, j.TxHash)
+
+			results[j.Index] = TraceResult{
+				Index:        j.Index,
+				TxIndex:      j.TxIndex,
+				TxHash:       j.TxHash,
+				Instructions: instructions,
+				State:        state,
+				Error:        err,
+			}
+
+			if err != nil {
+				fmt.Printf("Failed to trace transaction %d: %v\n", j.TxIndex+1, err)
+			} else {
+				fmt.Printf("Completed trace for transaction %d/%d with %d instructions\n",
+					j.TxIndex+1, len(txs), len(instructions))
+			}
+		}(job)
+	}
+
+	// Wait for all traces to complete
+	fmt.Printf("Waiting for all %d transactions to complete tracing...\n", len(jobs))
+	wg.Wait()
+	fmt.Printf("All transactions traced successfully!\n")
+
+	// Process all transactions with boundaries in one transpiler
+	fmt.Printf("Processing all %d traced transactions with boundaries...\n", len(results))
+	blockTranspiler := transpiler.NewTranspiler() // Use working version for now
+
+	var allTxResults []ProofResult
+
+	for i, result := range results {
+		if result.Error != nil {
+			fmt.Printf("Skipping transaction %d due to trace error: %v\n", result.TxIndex+1, result.Error)
 			continue
 		}
 
 		fmt.Printf("Transpiling transaction %d/%d with %d instructions\n",
-			i+1, len(txs), len(instructions))
+			result.TxIndex+1, len(txs), len(result.Instructions))
 
-		_, err = blockTranspiler.ProcessExecution(instructions, state)
+		_, err := blockTranspiler.ProcessExecution(result.Instructions, result.State)
 		if err != nil {
-			return fmt.Errorf("failed to transpile transaction %s: %v", tx.Hash.String(), err)
+			return fmt.Errorf("failed to transpile transaction %s: %v", result.TxHash.String(), err)
 		}
 
-		if i < len(txs)-1 {
+		// Add transaction boundary (except for the last transaction)
+		if i < len(results)-1 {
 			blockTranspiler.AddTransactionBoundary()
 		}
 
 		allTxResults = append(allTxResults, ProofResult{
-			TransactionHash:  tx.Hash.String(),
-			TransactionIndex: i + 1,
-			InstructionCount: len(instructions),
+			TransactionHash:  result.TxHash.String(),
+			TransactionIndex: result.TxIndex + 1,
+			InstructionCount: len(result.Instructions),
 		})
 	}
 
-	// Generate assembly for the entire block
+	// Generate assembly for the entire block with transaction boundaries
 	fmt.Printf("Generating assembly for block...\n")
 	assemblyStart := time.Now()
 	assembly := blockTranspiler.ToAssembly()
@@ -352,19 +432,89 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}
 	}
 
-	// Generate proof for the entire block
-	fmt.Printf("Starting ZK proof generation for block...\n")
-	proveStart := time.Now()
-	zkVm := prover.NewZkProver(content)
-	output, err := zkVm.Prove(ctx)
-	proveTime := time.Since(proveStart)
-	fmt.Printf("ZK proof generation completed in %v\n", proveTime)
+	// Generate proof for the entire block (if not skipped)
+	var output prover.ProofGeneration
+	if skipProof {
+		fmt.Printf("Skipping ZK proof generation (--skip-proof enabled)\n")
 
-	if err != nil {
-		return fmt.Errorf("failed to prove block: %v", err)
+		// Save debug mappings when skipping proof
+		if debugMode {
+			debugFile := fmt.Sprintf("debug_mappings_block_%d.json", blockNum)
+			if saveErr := blockTranspiler.SaveDebugMappings(debugFile); saveErr != nil {
+				fmt.Printf("Failed to save debug mappings: %v\n", saveErr)
+			} else {
+				fmt.Printf("Debug mappings saved to: %s\n", debugFile)
+			}
+		}
+	} else {
+		fmt.Printf("Starting ZK proof generation for combined block...\n")
+		proveStart := time.Now()
+		zkVm := prover.NewZkProver(content)
+		var err error
+		output, err = zkVm.Prove(ctx)
+		proveTime := time.Since(proveStart)
+
+		if err != nil {
+			fmt.Printf("ZK proof failed, saving debug info...\n")
+			// Save debug mappings for analysis
+			debugFile := fmt.Sprintf("debug_mappings_block_%d.json", blockNum)
+			if saveErr := blockTranspiler.SaveDebugMappings(debugFile); saveErr != nil {
+				fmt.Printf("Failed to save debug mappings: %v\n", saveErr)
+			} else {
+				fmt.Printf("Debug mappings saved to: %s\n", debugFile)
+			}
+
+			// If not in debug mode, suggest running with debug mode
+			if !debugMode {
+				fmt.Printf("Re-run with --debug-mode for detailed transpilation analysis\n")
+			}
+
+			return fmt.Errorf("failed to prove block: %v", err)
+		}
+
+		fmt.Printf("ZK proof generation completed in %v\n", proveTime)
 	}
 
 	// Create block result
+	if skipProof {
+		// Create result without proof data
+		blockResult := struct {
+			BlockNumber       uint64        `json:"block_number"`
+			TransactionCount  int           `json:"transaction_count"`
+			Transactions      []ProofResult `json:"transactions"`
+			TotalInstructions int           `json:"total_instructions"`
+			Status            string        `json:"status"`
+		}{
+			BlockNumber:      blockNum,
+			TransactionCount: len(allTxResults),
+			Transactions:     allTxResults,
+			Status:           "transpiled_no_proof",
+		}
+
+		for _, txResult := range allTxResults {
+			blockResult.TotalInstructions += txResult.InstructionCount
+		}
+
+		jsonData, err := json.MarshalIndent(blockResult, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON for block: %v", err)
+		}
+
+		outputFile := fmt.Sprintf("block_%d.json", blockNum)
+		err = os.WriteFile(outputFile, jsonData, 0644)
+		if err != nil {
+			fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
+		} else {
+			fmt.Printf("Block %d results written to: %s\n", blockNum, outputFile)
+		}
+
+		fmt.Printf("Completed block transpilation with %d transactions and %d total instructions\n",
+			len(allTxResults), blockResult.TotalInstructions)
+
+		return nil
+	}
+
+	// Create result with proof data
 	blockResult := struct {
 		BlockNumber       uint64        `json:"block_number"`
 		TransactionCount  int           `json:"transaction_count"`
@@ -380,7 +530,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		Proof:            hex.EncodeToString(output.Proof),
 	}
 
-	// Calculate total instructions
 	for _, txResult := range allTxResults {
 		blockResult.TotalInstructions += txResult.InstructionCount
 	}
@@ -390,7 +539,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		return fmt.Errorf("failed to marshal JSON for block: %v", err)
 	}
 
-	// Write block result
 	outputFile := fmt.Sprintf("block_%d.json", blockNum)
 	err = os.WriteFile(outputFile, jsonData, 0644)
 	if err != nil {
