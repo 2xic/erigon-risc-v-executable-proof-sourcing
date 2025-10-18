@@ -364,20 +364,27 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		return fmt.Errorf("failed to prove block: %v", err)
 	}
 
-	// Create block result
 	blockResult := struct {
 		BlockNumber       uint64        `json:"block_number"`
 		TransactionCount  int           `json:"transaction_count"`
 		Transactions      []ProofResult `json:"transactions"`
 		TotalInstructions int           `json:"total_instructions"`
+		AssemblyTimeMs    int64         `json:"assembly_time_ms"`
+		ProofTimeMs       int64         `json:"proof_time_ms"`
+		TotalTimeMs       int64         `json:"total_time_ms"`
 		AppVK             string        `json:"app_vk"`
 		Proof             string        `json:"proof"`
+		Timestamp         string        `json:"timestamp"`
 	}{
 		BlockNumber:      blockNum,
 		TransactionCount: len(allTxResults),
 		Transactions:     allTxResults,
 		AppVK:            hex.EncodeToString(output.AppVK),
 		Proof:            hex.EncodeToString(output.Proof),
+		AssemblyTimeMs:   assemblyTime.Milliseconds(),
+		ProofTimeMs:      proveTime.Milliseconds(),
+		TotalTimeMs:      (assemblyTime + proveTime).Milliseconds(),
+		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 	}
 
 	// Calculate total instructions
