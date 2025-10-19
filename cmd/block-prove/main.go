@@ -433,6 +433,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	}
 
 	var output prover.ProofGeneration
+	var proveTime time.Duration
 	if skipProof {
 		fmt.Printf("Skipping ZK proof generation (--skip-proof enabled)\n")
 
@@ -450,7 +451,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		zkVm := prover.NewZkProver(content)
 		var err error
 		output, err = zkVm.Prove(ctx)
-		proveTime := time.Since(proveStart)
+		proveTime = time.Since(proveStart)
 
 		if err != nil {
 			fmt.Printf("ZK proof failed, saving debug info...\n")

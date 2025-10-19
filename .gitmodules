@@ -2,3 +2,6 @@
 	path = erigon
 	url = https://github.com/2xic-speedrun/erigon
 	commit = 8ff1e785f51401eeeeda77c8decd2849f4ea3355
+[submodule "benchmarking/ethrex"]
+	path = benchmarking/ethrex
+	url = https://github.com/lambdaclass/ethrex.git
