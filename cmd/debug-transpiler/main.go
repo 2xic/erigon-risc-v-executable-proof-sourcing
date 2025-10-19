@@ -39,11 +39,13 @@ func main() {
 	right := len(mappings) - 1
 	lastWorkingIndex := -1
 
+	content := ""
+
 	for left <= right {
 		mid := (left + right) / 2
 		fmt.Printf("Testing range 0-%d (%d EVM opcodes)...", mid, mid+1)
 
-		content, err := buildAssemblyUpTo(mappings, mid)
+		content, err = buildAssemblyUpTo(mappings, mid)
 		if err != nil {
 			fmt.Printf(" FAILED at assembly generation: %v\n", err)
 			right = mid - 1
@@ -70,6 +72,14 @@ func main() {
 		}
 	}
 
+	assemblyFile := "debug_transpiler_assembly.s"
+	err = os.WriteFile(assemblyFile, []byte(content), 0644)
+	if err != nil {
+		fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)
+	} else {
+		fmt.Printf("Transpiled assembly written to: %s\n", assemblyFile)
+	}
+
 	if lastWorkingIndex == -1 {
 		fmt.Printf("\n❌ First EVM opcode fails!\n")
 		fmt.Printf("Problematic EVM opcode: %s\n", mappings[0].EvmOpcode)
@@ -84,20 +94,17 @@ func main() {
 }
 
 func buildAssemblyUpTo(mappings []transpiler.EvmToRiscVMapping, endIndex int) (string, error) {
-	// Create assembly file with instructions and data up to endIndex
 	var allInstructions []prover.Instruction
-	dataVarMap := make(map[string]prover.DataVariable) // Deduplicate by name
+	dataVarMap := make(map[string]prover.DataVariable)
 
 	for i := 0; i <= endIndex && i < len(mappings); i++ {
 		allInstructions = append(allInstructions, mappings[i].RiscVInstructions...)
 
-		// Add data variables, avoiding duplicates
 		for _, dataVar := range mappings[i].DataVariables {
 			dataVarMap[dataVar.Name] = dataVar
 		}
 	}
 
-	// Convert map to slice
 	var allDataVars []prover.DataVariable
 	for _, dataVar := range dataVarMap {
 		allDataVars = append(allDataVars, dataVar)
