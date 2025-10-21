@@ -1,17 +1,19 @@
 use anyhow::{anyhow, Result};
+use chrono::Utc;
 use clap::Parser;
 use ethrex_common::types::ChainConfig;
 use ethrex_prover_lib::{execute, prove, to_batch_proof, backend::Backend};
 use ethrex_rpc::{
     clients::eth::EthClient,
-    debug::execution_witness::{execution_witness_from_rpc_chain_config, RpcExecutionWitness},
+    debug::execution_witness::execution_witness_from_rpc_chain_config,
     types::block_identifier::BlockIdentifier,
 };
 use guest_program::input::ProgramInput;
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -29,11 +31,24 @@ struct Args {
     #[arg(long, default_value = "1")]
     chain_id: u64,
 
-    #[arg(short, long)]
-    prove: bool,
-
     #[arg(short = 'w', long)]
     witness_file: Option<PathBuf>,
+
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BenchmarkResult {
+    block_number: u64,
+    chain_id: u64,
+    backend: String,
+    fetch_time_ms: u64,
+    witness_time_ms: u64,
+    execution_time_ms: u64,
+    proof_time_ms: u64,
+    total_time_ms: u64,
+    timestamp: String,
 }
 
 #[tokio::main]
@@ -56,7 +71,6 @@ async fn main() -> Result<()> {
         info!("End block: {}", end);
     }
     info!("Backend: {:?}", backend);
-    info!("Mode: {}", if args.prove { "prove" } else { "execute" });
 
     let client = EthClient::new(&args.rpc_url)
         .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
@@ -69,7 +83,8 @@ async fn main() -> Result<()> {
         .await
         .map_err(|e| anyhow!("Failed to fetch block {}: {}", args.block_number, e))?;
 
-    info!("Fetched block in {:?}", fetch_start.elapsed());
+    let fetch_duration = fetch_start.elapsed();
+    info!("Fetched block in {:?}", fetch_duration);
 
     let witness_start = Instant::now();
     let rpc_witness = if let Some(witness_path) = &args.witness_file {
@@ -92,7 +107,8 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow!("Failed to fetch execution witness: {}", e))?
     };
 
-    info!("Got execution witness in {:?}", witness_start.elapsed());
+    let witness_duration = witness_start.elapsed();
+    info!("Got execution witness in {:?}", witness_duration);
 
     let mut chain_config = ChainConfig::default();
     chain_config.chain_id = args.chain_id;
@@ -106,47 +122,74 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
-    let input = ProgramInput {
+    // Execute
+    info!("Executing with {:?} backend...", backend);
+    let exec_start = Instant::now();
+    let input_exec = ProgramInput {
+        blocks: vec![block.clone()],
+        execution_witness: execution_witness.clone(),
+        elasticity_multiplier: 2,
+        fee_config: None,
+    };
+    execute(backend, input_exec)
+        .map_err(|e| anyhow!("Failed to execute: {}", e))?;
+    let exec_duration = exec_start.elapsed();
+    info!("✓ Execution completed in {:?}", exec_duration);
+
+    // Prove
+    info!("Generating proof with {:?} backend...", backend);
+    let prove_start = Instant::now();
+    let input_prove = ProgramInput {
         blocks: vec![block],
         execution_witness,
         elasticity_multiplier: 2,
         fee_config: None,
     };
+    let proof_output = prove(backend, input_prove, false)
+        .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
+    let prove_duration = prove_start.elapsed();
+    info!("✓ Proof generated in {:?}", prove_duration);
 
-    if args.prove {
-        info!("Generating proof with {:?} backend...", backend);
-        let prove_start = Instant::now();
+    let batch_proof = to_batch_proof(proof_output, false)
+        .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
+    info!("Batch proof type: {:?}", batch_proof);
 
-        let proof_output = prove(backend, input, false)
-            .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
+    let total_duration = fetch_duration + witness_duration + exec_duration + prove_duration;
 
-        let prove_duration = prove_start.elapsed();
-        info!("✓ Proof generated in {:?}", prove_duration);
+    // Create benchmark result
+    let result = BenchmarkResult {
+        block_number: args.block_number,
+        chain_id: args.chain_id,
+        backend: format!("{:?}", backend),
+        fetch_time_ms: fetch_duration.as_millis() as u64,
+        witness_time_ms: witness_duration.as_millis() as u64,
+        execution_time_ms: exec_duration.as_millis() as u64,
+        proof_time_ms: prove_duration.as_millis() as u64,
+        total_time_ms: total_duration.as_millis() as u64,
+        timestamp: Utc::now().to_rfc3339(),
+    };
 
-        let batch_proof = to_batch_proof(proof_output, false)
-            .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
+    // Determine output file path
+    let output_path = args.output.unwrap_or_else(|| {
+        PathBuf::from(format!("{}_ethrex.json", args.block_number))
+    });
 
-        info!("Batch proof type: {:?}", batch_proof);
+    // Write JSON output
+    let json_output = serde_json::to_string_pretty(&result)
+        .map_err(|e| anyhow!("Failed to serialize benchmark result: {}", e))?;
 
-        info!("=== Benchmark Summary ===");
-        info!("Backend: {:?}", backend);
-        info!("Block: {}", args.block_number);
-        info!("Proof generation time: {:?}", prove_duration);
-    } else {
-        info!("Executing with {:?} backend (no proof generation)...", backend);
-        let exec_start = Instant::now();
+    fs::write(&output_path, json_output)
+        .map_err(|e| anyhow!("Failed to write output file: {}", e))?;
 
-        execute(backend, input)
-            .map_err(|e| anyhow!("Failed to execute: {}", e))?;
-
-        let exec_duration = exec_start.elapsed();
-        info!("✓ Execution completed in {:?}", exec_duration);
-
-        info!("=== Benchmark Summary ===");
-        info!("Backend: {:?}", backend);
-        info!("Block: {}", args.block_number);
-        info!("Execution time: {:?}", exec_duration);
-    }
+    info!("=== Benchmark Summary ===");
+    info!("Backend: {:?}", backend);
+    info!("Block: {}", args.block_number);
+    info!("Fetch time: {:?}", Duration::from_millis(result.fetch_time_ms));
+    info!("Witness time: {:?}", Duration::from_millis(result.witness_time_ms));
+    info!("Execution time: {:?}", exec_duration);
+    info!("Proof time: {:?}", prove_duration);
+    info!("Total time: {:?}", total_duration);
+    info!("Results written to: {}", output_path.display());
 
     Ok(())
 }
