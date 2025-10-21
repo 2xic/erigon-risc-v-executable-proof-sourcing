@@ -9,6 +9,7 @@ import (
 	"erigon-transpiler-risc-v/transpiler"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/erigontech/erigon-lib/common"
 	libcommon "github.com/erigontech/erigon-lib/common"
@@ -29,8 +30,14 @@ func main() {
 
 	var txHash string
 	var outputFile string
+	var debugAssembly bool
+	var skipProving bool
+	var assemblyFile string
 	cmd.Flags().StringVar(&txHash, "tx-hash", "0x04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
 	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
+	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
+	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled.s", "Assembly output file path (used with --debug-assembly)")
+	cmd.Flags().BoolVar(&skipProving, "skip-proving", false, "Skip proof generation")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -55,8 +62,11 @@ func main() {
 		stream := jsonstream.New(&buf)
 		debugAPI := findDebug(apiList)
 
+		ranTracer := false
 		customTracer := tracer.NewTracerHooks(
 			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
+				ranTracer = true
+				fmt.Println("hello")
 				transpiler := transpiler.NewTranspiler()
 				instructions := newTracer.GetInstructions()
 				executionState := newTracer.GetExecutionState()
@@ -69,11 +79,39 @@ func main() {
 				if err != nil {
 					return nil, err
 				}
+
+				if debugAssembly {
+					debugFile := "debug_mappings.json"
+					err = transpiler.SaveDebugMappings(debugFile)
+					if err != nil {
+						fmt.Printf("Warning: Failed to write debug mappings to %s: %v\n", debugFile, err)
+					} else {
+						fmt.Printf("Debug mappings written to: %s\n", debugFile)
+					}
+
+					err := os.WriteFile(assemblyFile, []byte(content), 0644)
+					if err != nil {
+						fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)
+					} else {
+						fmt.Printf("Transpiled assembly written to: %s\n", assemblyFile)
+					}
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+				defer cancel()
+
+				if skipProving {
+					fmt.Println("Skipping proving as per --skip-proving flag.")
+					return &prover.ResultsFile{
+						AppVK: "skipped",
+						Proof: "skipped",
+					}, nil
+				}
 				zkVm := prover.NewZkProver(content)
-				output, err := zkVm.Prove()
+				output, err := zkVm.Prove(ctx)
 				if err != nil {
 					return nil, err
 				}
+
 				return &prover.ResultsFile{
 					AppVK: hex.EncodeToString(output.AppVK),
 					Proof: hex.EncodeToString(output.Proof),
@@ -95,6 +133,12 @@ func main() {
 		)
 		if err != nil {
 			fmt.Println("failed to do trace", err.Error())
+			os.Exit(1)
+		}
+
+		if !ranTracer {
+			fmt.Println("failed to do trace ... Transaction not found?")
+			os.Exit(1)
 		}
 
 		// Output results to file or stdout

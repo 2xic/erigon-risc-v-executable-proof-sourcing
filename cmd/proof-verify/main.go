@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"erigon-transpiler-risc-v/prover"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -16,7 +18,9 @@ func main() {
 		Short: "Verify OpenVM proofs from results file",
 		Long:  "Verify OpenVM app proofs using cargo openvm verify app command with data from results.json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := prover.VerifyFromResults(resultsFile)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := prover.VerifyFromResults(ctx, resultsFile)
 			if err != nil {
 				fmt.Printf("Verification failed: %v\n", err)
 				fmt.Printf("Output: %s\n", result.Stdout)

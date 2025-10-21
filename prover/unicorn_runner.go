@@ -51,6 +51,22 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 	if err != nil {
 		return nil, NewPreRuntimeError(err)
 	}
+	
+	err = mu.RegWrite(uc.RISCV_REG_S3, stackTop)
+	if err != nil {
+		return nil, NewPreRuntimeError(err)
+	}
+	
+	contextStackTop := uint64(0x6fff0000)
+	err = mu.RegWrite(uc.RISCV_REG_S1, contextStackTop)
+	if err != nil {
+		return nil, NewPreRuntimeError(err)
+	}
+	
+	err = mu.MemMap(contextStackTop-0x10000, 0x10000)
+	if err != nil {
+		return nil, NewPreRuntimeError(err)
+	}
 
 	allStackSnapshots := make([][]uint256.Int, 0)
 	executionResults := &ExecutionResult{
@@ -85,12 +101,10 @@ func (vm *VmRunner) Execute(bytecode []byte) (*ExecutionResult, error) {
 		*/
 
 		if instr == uint32(EbreakInstr) {
-			//	debugStackMemory(mu, stackAddr, memSize)
 			snapshot, err := printStackState(mu, stackAddr, memSize)
 			if err != nil {
 				panic(NewRuntimeError(err))
 			}
-
 			allStackSnapshots = append(allStackSnapshots, snapshot)
 			pc, err := mu.RegRead(uc.RISCV_REG_PC)
 			if err != nil {
@@ -185,7 +199,14 @@ func debugStackMemory(mu uc.Unicorn, stackBase, memSize uint64) {
 
 func printStackState(mu uc.Unicorn, stackBase, memSize uint64) ([]uint256.Int, error) {
 	sp, _ := mu.RegRead(uc.RISCV_REG_SP)
-	stackTop := stackBase + memSize - 16
+	
+	logicalStackTop, err := mu.RegRead(uc.RISCV_REG_S3)
+	var stackTop uint64
+	if err != nil || logicalStackTop == 0 {
+		stackTop = stackBase + memSize - 16
+	} else {
+		stackTop = logicalStackTop
+	}
 
 	if sp > stackTop {
 		return nil, fmt.Errorf("stack pointer (%d) exceeds stack top (%d)", sp, stackTop)

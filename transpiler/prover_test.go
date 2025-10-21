@@ -1,6 +1,7 @@
 package transpiler
 
 import (
+	"context"
 	"erigon-transpiler-risc-v/prover"
 	"testing"
 
@@ -95,7 +96,7 @@ execute:
 	ret
 	`
 	zkVm := prover.NewZkProver(content)
-	output, err := zkVm.TestRun()
+	output, err := zkVm.TestRun(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, "Execution output: [238, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18, 239, 205, 171, 144, 120, 86, 52, 18]", output)
 }
@@ -184,7 +185,7 @@ execute:
 	ret
 	`
 	zkVm := prover.NewZkProver(content)
-	output, err := zkVm.TestRun()
+	output, err := zkVm.TestRun(context.Background())
 	assert.NoError(t, err)
 	// Expected: 0x12345678, 0x9ABCDEF0, 0x11111111, 0x22222222, 0x33333333, 0x44444444, 0x55555555, 0x66666666
 	assert.Equal(t, "Execution output: [120, 86, 52, 18, 240, 222, 188, 154, 17, 17, 17, 17, 34, 34, 34, 34, 51, 51, 51, 51, 68, 68, 68, 68, 85, 85, 85, 85, 102, 102, 102, 102]", output)
@@ -239,7 +240,7 @@ func TestSolidityCompilation(t *testing.T) {
 		assert.NoError(t, err)
 
 		zkVm := prover.NewZkProver(content)
-		output, err := zkVm.TestRun()
+		output, err := zkVm.TestRun(context.Background())
 		assert.NoError(t, err)
 		// All zero as we don't write any of the output.
 		assert.Equal(t, "Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]", output)
