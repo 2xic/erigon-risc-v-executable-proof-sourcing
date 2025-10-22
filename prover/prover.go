@@ -2,6 +2,7 @@ package prover
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -54,20 +55,24 @@ func NewCli(workSpace string) Cli {
 	}
 }
 
-func (cli *Cli) Execute(arg ...string) (string, error) {
+func (cli *Cli) Execute(ctx context.Context, arg ...string) (string, error) {
 	if len(arg) == 0 {
 		return "", fmt.Errorf("no command provided")
 	}
 
-	cmd := exec.Command(arg[0], arg[1:]...)
+	cmd := exec.CommandContext(ctx, arg[0], arg[1:]...)
 	cmd.Dir = cli.workSpace
 
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	return output.String(), err
+	if err != nil && stderr.Len() > 0 {
+		return stdout.String(), fmt.Errorf("%w: stderr: %s", err, stderr.String())
+	}
+	return stdout.String(), err
 }
 
 func (cli *Cli) readFile(name string) ([]byte, error) {
@@ -95,13 +100,13 @@ type ResultsFile struct {
 	Proof string `json:"Proof"`
 }
 
-func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
-	cli, err := zkVm.SetupExecution()
+func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
+	cli, err := zkVm.SetupExecution(ctx)
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to setup execution", err)
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "prove", "app")
+	output, err := cli.Execute(ctx, "cargo", "openvm", "prove", "app")
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
@@ -124,19 +129,19 @@ func (zkVm *ZkProver) Prove() (ProofGeneration, error) {
 	return results, nil
 }
 
-func (zkVm *ZkProver) StarkProve() (ProofGeneration, error) {
+func (zkVm *ZkProver) StarkProve(ctx context.Context) (ProofGeneration, error) {
 	workSpace, err := setupWorkspace([]byte(zkVm.content))
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to setup workspace", err)
 	}
 
 	cli := NewCli(workSpace)
-	_, err = cli.Execute("cargo", "openvm", "setup")
+	_, err = cli.Execute(ctx, "cargo", "openvm", "setup")
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "prove", "stark")
+	output, err := cli.Execute(ctx, "cargo", "openvm", "prove", "stark")
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
@@ -159,13 +164,13 @@ func (zkVm *ZkProver) StarkProve() (ProofGeneration, error) {
 	return results, nil
 }
 
-func (zkVm *ZkProver) TestRun() (string, error) {
-	cli, err := zkVm.SetupExecution()
+func (zkVm *ZkProver) TestRun(ctx context.Context) (string, error) {
+	cli, err := zkVm.SetupExecution(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	output, err := cli.Execute("cargo", "openvm", "run")
+	output, err := cli.Execute(ctx, "cargo", "openvm", "run")
 	if err != nil {
 		return "", err
 	}
@@ -184,7 +189,7 @@ func (zkVm *ZkProver) TestRun() (string, error) {
 	return executionOutput, nil
 }
 
-func VerifyFromResults(resultsPath string) (VerificationResult, error) {
+func VerifyFromResults(ctx context.Context, resultsPath string) (VerificationResult, error) {
 	if resultsPath == "" {
 		resultsPath = "results.json"
 	}
@@ -226,7 +231,7 @@ func VerifyFromResults(resultsPath string) (VerificationResult, error) {
 	}
 
 	cli := NewCli(tmpDir)
-	output, err := cli.Execute("cargo", "openvm", "verify", "app", "--app-vk", appVKPath, "--proof", proofPath)
+	output, err := cli.Execute(ctx, "cargo", "openvm", "verify", "app", "--app-vk", appVKPath, "--proof", proofPath)
 	result := VerificationResult{
 		Stdout: output,
 		Valid:  err == nil,
@@ -239,7 +244,7 @@ func VerifyFromResults(resultsPath string) (VerificationResult, error) {
 	return result, nil
 }
 
-func (zkVm *ZkProver) SetupExecution() (*Cli, error) {
+func (zkVm *ZkProver) SetupExecution(ctx context.Context) (*Cli, error) {
 	workSpace, err := setupWorkspace([]byte(zkVm.content))
 	if err != nil {
 		return nil, NewZkProverError("failed to setup workspace", err)
@@ -247,12 +252,12 @@ func (zkVm *ZkProver) SetupExecution() (*Cli, error) {
 
 	cli := NewCli(workSpace)
 
-	_, err = cli.Execute("cargo", "openvm", "build")
+	_, err = cli.Execute(ctx, "cargo", "openvm", "build")
 	if err != nil {
 		return nil, NewZkProverError("failed to build project", err)
 	}
 
-	_, err = cli.Execute("cargo", "openvm", "keygen")
+	_, err = cli.Execute(ctx, "cargo", "openvm", "keygen")
 	if err != nil {
 		return nil, NewZkProverError("failed to generate keys", err)
 	}
