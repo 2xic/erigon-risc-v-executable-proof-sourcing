@@ -42,14 +42,12 @@ func main() {
 	var blockNumber string
 	var debugAssembly bool
 	var assemblyFile string
-	var transpileBlock bool
 	var debugMode bool
 	var skipProof bool
 	var maxTxs int
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
-	cmd.Flags().BoolVar(&transpileBlock, "transpile-block", true, "Transpile entire block as single unit with transaction boundaries")
 	cmd.Flags().BoolVar(&debugMode, "debug-mode", false, "Enable debug transpiler with detailed mappings")
 	cmd.Flags().BoolVar(&skipProof, "skip-proof", false, "Skip ZK proof generation to save memory")
 	cmd.Flags().IntVar(&maxTxs, "max-txs", 0, "Limit to first N transactions (0 = all transactions, useful for binary search debugging)")
@@ -106,125 +104,7 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
-		if transpileBlock {
-			return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs)
-		}
-
-		// Transaction context for tracer callback
-		var currentTxIndex int
-		var currentTxHash common.Hash
-		var ranTracer bool
-
-		// Register tracer once
-		customTracer := tracer.NewTracerHooks(
-			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
-				ranTracer = true
-				txInstructions := newTracer.GetInstructions()
-				txExecutionState := newTracer.GetExecutionState()
-
-				fmt.Printf("Transaction %d generated %d instructions\n", currentTxIndex+1, len(txInstructions))
-
-				transpiler := transpiler.NewTranspiler()
-				_, err := transpiler.ProcessExecution(txInstructions, txExecutionState)
-				if err != nil {
-					return nil, fmt.Errorf("failed to transpile transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				assembly := transpiler.ToAssembly()
-				content, err := assembly.ToToolChainCompatibleAssembly()
-				if err != nil {
-					return nil, fmt.Errorf("failed to generate assembly for transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				zkVm := prover.NewZkProver(content)
-				output, err := zkVm.Prove(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("failed to prove transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				result := ProofResult{
-					TransactionHash:  currentTxHash.String(),
-					TransactionIndex: currentTxIndex + 1,
-					InstructionCount: len(txInstructions),
-					AppVK:            hex.EncodeToString(output.AppVK),
-					Proof:            hex.EncodeToString(output.Proof),
-				}
-
-				jsonData, err := json.MarshalIndent(result, "", "  ")
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal JSON for transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				outputFolder := fmt.Sprintf("%d", blockNum)
-				err = os.MkdirAll(outputFolder, 0755)
-				if err != nil {
-					fmt.Printf("Error creating directory %s: %v\n", outputFolder, err)
-				} else {
-					txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, currentTxIndex+1)
-					err := os.WriteFile(txOutputFile, jsonData, 0644)
-					if err != nil {
-						fmt.Printf("Error writing to file %s: %v\n", txOutputFile, err)
-					} else {
-						fmt.Printf("Transaction %d results written to: %s\n", currentTxIndex+1, txOutputFile)
-					}
-				}
-
-				return &prover.ResultsFile{}, nil
-			},
-		)
-		tracers.RegisterLookup(false, customTracer)
-
-		for i, txInterface := range txs {
-			tx, ok := txInterface.(*ethapi.RPCTransaction)
-			if !ok {
-				fmt.Printf("Skipping invalid transaction %d (type: %T)\n", i+1, txInterface)
-				continue
-			}
-
-			txHash := tx.Hash
-
-			// Check if transaction already exists
-			outputFolder := fmt.Sprintf("%d", blockNum)
-			txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
-			if _, err := os.Stat(txOutputFile); err == nil {
-				fmt.Printf("Transaction %d/%d already exists, skipping: %s\n", i+1, len(txs), txHash.String())
-				continue
-			}
-
-			fmt.Printf("Processing transaction %d/%d: %s\n", i+1, len(txs), txHash.String())
-
-			// Set current transaction context for tracer callback
-			currentTxIndex = i
-			currentTxHash = txHash
-			ranTracer = false
-
-			var buf bytes.Buffer
-			stream := jsonstream.New(&buf)
-
-			tracerName := "Mine"
-			timeout := "2m"
-			err = debugAPI.TraceTransaction(
-				context.Background(),
-				txHash,
-				&config.TraceConfig{
-					Tracer:  &tracerName,
-					Timeout: &timeout,
-				},
-				stream,
-			)
-			if err != nil {
-				fmt.Printf("Failed to trace transaction %s: %v\n", txHash.String(), err)
-				continue
-			}
-
-			if !ranTracer {
-				fmt.Printf("Warning: Tracer did not run for transaction %s\n", txHash.String())
-			}
-		}
-
-		fmt.Printf("Completed processing %d transactions\n", len(txs))
-
-		return nil
+		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs)
 	}
 
 	if err := cmd.ExecuteContext(rootCtx); err != nil {
