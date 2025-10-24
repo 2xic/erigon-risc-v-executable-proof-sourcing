@@ -83,10 +83,13 @@ func main() {
 			return fmt.Errorf("invalid block number: %v", err)
 		}
 
+		blockFetchStart := time.Now()
 		blockData, err := ethApi.GetBlockByNumber(ctx, rpc.BlockNumber(blockNum), true)
+		blockFetchTime := time.Since(blockFetchStart)
 		if err != nil {
 			return fmt.Errorf("failed to get block: %v", err)
 		}
+		fmt.Printf("Block data fetched in %v\n", blockFetchTime)
 
 		if blockData == nil {
 			return fmt.Errorf("block not found")
@@ -104,7 +107,7 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
-		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs)
+		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs, blockFetchTime)
 	}
 
 	if err := cmd.ExecuteContext(rootCtx); err != nil {
@@ -172,10 +175,9 @@ func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHas
 	return tracerResult.GetInstructions(), tracerResult.GetExecutionState(), nil
 }
 
-func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int) error {
+func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int, blockFetchTime time.Duration) error {
 	fmt.Printf("Processing block %d with %d transactions using parallel tracing...\n", blockNum, len(txs))
 
-	// Define structures for parallel processing
 	type TraceJob struct {
 		Index    int
 		TxIndex  int
@@ -192,7 +194,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		Error        error
 	}
 
-	// Collect all valid transactions (limited by maxTxs if specified)
 	var jobs []TraceJob
 	for i, txInterface := range txs {
 		if maxTxs > 0 && i >= maxTxs {
@@ -213,7 +214,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		})
 	}
 
-	// Parallel tracing with semaphore to limit concurrency
 	maxConcurrent := 5
 	semaphore := make(chan struct{}, maxConcurrent)
 	results := make([]TraceResult, len(jobs))
@@ -221,13 +221,13 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 
 	fmt.Printf("Tracing %d transactions in parallel (max %d concurrent)...\n", len(jobs), maxConcurrent)
 
-	// Launch all tracing goroutines
+	txFetchStart := time.Now()
+
 	for _, job := range jobs {
 		wg.Add(1)
 		go func(j TraceJob) {
 			defer wg.Done()
 
-			// Acquire semaphore to limit concurrency
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
@@ -253,15 +253,13 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}(job)
 	}
 
-	// Wait for all traces to complete
 	fmt.Printf("Waiting for all %d transactions to complete tracing...\n", len(jobs))
 	wg.Wait()
-	fmt.Printf("All transactions traced successfully!\n")
+	txFetchTime := time.Since(txFetchStart)
+	fmt.Printf("All transactions traced successfully in %v\n", txFetchTime)
 
-	// Process all transactions with boundaries in one transpiler
 	fmt.Printf("Processing all %d traced transactions with boundaries...\n", len(results))
-	blockTranspiler := transpiler.NewTranspiler() // Use working version for now
-
+	blockTranspiler := transpiler.NewTranspiler()
 	var allTxResults []ProofResult
 
 	for i, result := range results {
@@ -278,7 +276,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 			return fmt.Errorf("failed to transpile transaction %s: %v", result.TxHash.String(), err)
 		}
 
-		// Add transaction boundary (except for the last transaction)
 		if i < len(results)-1 {
 			blockTranspiler.AddTransactionBoundary()
 		}
@@ -290,7 +287,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		})
 	}
 
-	// Generate assembly for the entire block with transaction boundaries
 	fmt.Printf("Generating assembly for block...\n")
 	assemblyStart := time.Now()
 	assembly := blockTranspiler.ToAssembly()
@@ -302,7 +298,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		return fmt.Errorf("failed to generate assembly for block: %v", err)
 	}
 
-	// Write debug assembly if requested
 	if debugAssembly {
 		err := os.WriteFile(assemblyFile, []byte(content), 0644)
 		if err != nil {
@@ -335,7 +330,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 
 		if err != nil {
 			fmt.Printf("ZK proof failed, saving debug info...\n")
-			// Save debug mappings for analysis
 			debugFile := fmt.Sprintf("debug_mappings_block_%d.json", blockNum)
 			if saveErr := blockTranspiler.SaveDebugMappings(debugFile); saveErr != nil {
 				fmt.Printf("Failed to save debug mappings: %v\n", saveErr)
@@ -343,7 +337,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 				fmt.Printf("Debug mappings saved to: %s\n", debugFile)
 			}
 
-			// If not in debug mode, suggest running with debug mode
 			if !debugMode {
 				fmt.Printf("Re-run with --debug-mode for detailed transpilation analysis\n")
 			}
@@ -359,6 +352,8 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		TransactionCount  int           `json:"transaction_count"`
 		Transactions      []ProofResult `json:"transactions"`
 		TotalInstructions int           `json:"total_instructions"`
+		BlockFetchTimeMs  int64         `json:"block_fetch_time_ms"`
+		TxFetchTimeMs     int64         `json:"tx_fetch_time_ms"`
 		AssemblyTimeMs    int64         `json:"assembly_time_ms"`
 		ProofTimeMs       int64         `json:"proof_time_ms"`
 		TotalTimeMs       int64         `json:"total_time_ms"`
@@ -371,9 +366,11 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		Transactions:     allTxResults,
 		AppVK:            hex.EncodeToString(output.AppVK),
 		Proof:            hex.EncodeToString(output.Proof),
+		BlockFetchTimeMs: blockFetchTime.Milliseconds(),
+		TxFetchTimeMs:    txFetchTime.Milliseconds(),
 		AssemblyTimeMs:   assemblyTime.Milliseconds(),
 		ProofTimeMs:      proveTime.Milliseconds(),
-		TotalTimeMs:      (assemblyTime + proveTime).Milliseconds(),
+		TotalTimeMs:      (blockFetchTime + txFetchTime + assemblyTime + proveTime).Milliseconds(),
 		Timestamp:        time.Now().UTC().Format(time.RFC3339),
 	}
 
