@@ -1,7 +1,7 @@
 ## Benchmarking code
 - [ethrex-prover-bench](./ethrex-prover-bench/README.md)
 - [rsp-prover-bench](./rsp-prover-bench/README.md)
-
+- [zeth](./zeth-prover-bench/README.md)
 
 ## Getting data
 ```bash

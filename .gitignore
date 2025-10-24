@@ -1,3 +1,4 @@
 bins
 target
-benchmarking/ethrex-prover-bench/reth-witness-550-sorted.json
+benchmarking/reth-witness-550-sorted.json
+benchmarking/block_23174550.json
