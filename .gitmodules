@@ -5,3 +5,6 @@
 [submodule "benchmarking/ethrex"]
 	path = benchmarking/ethrex
 	url = https://github.com/lambdaclass/ethrex.git
+[submodule "benchmarking/rsp"]
+	path = benchmarking/rsp
+	url = https://github.com/succinctlabs/rsp.git
