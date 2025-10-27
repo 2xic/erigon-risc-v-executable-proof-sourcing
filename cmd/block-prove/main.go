@@ -42,14 +42,12 @@ func main() {
 	var blockNumber string
 	var debugAssembly bool
 	var assemblyFile string
-	var transpileBlock bool
 	var debugMode bool
 	var skipProof bool
 	var maxTxs int
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
-	cmd.Flags().BoolVar(&transpileBlock, "transpile-block", true, "Transpile entire block as single unit with transaction boundaries")
 	cmd.Flags().BoolVar(&debugMode, "debug-mode", false, "Enable debug transpiler with detailed mappings")
 	cmd.Flags().BoolVar(&skipProof, "skip-proof", false, "Skip ZK proof generation to save memory")
 	cmd.Flags().IntVar(&maxTxs, "max-txs", 0, "Limit to first N transactions (0 = all transactions, useful for binary search debugging)")
@@ -85,10 +83,13 @@ func main() {
 			return fmt.Errorf("invalid block number: %v", err)
 		}
 
+		blockFetchStart := time.Now()
 		blockData, err := ethApi.GetBlockByNumber(ctx, rpc.BlockNumber(blockNum), true)
+		blockFetchTime := time.Since(blockFetchStart)
 		if err != nil {
 			return fmt.Errorf("failed to get block: %v", err)
 		}
+		fmt.Printf("Block data fetched in %v\n", blockFetchTime)
 
 		if blockData == nil {
 			return fmt.Errorf("block not found")
@@ -106,125 +107,7 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
-		if transpileBlock {
-			return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs)
-		}
-
-		// Transaction context for tracer callback
-		var currentTxIndex int
-		var currentTxHash common.Hash
-		var ranTracer bool
-
-		// Register tracer once
-		customTracer := tracer.NewTracerHooks(
-			func(newTracer *tracer.StateTracer) (*prover.ResultsFile, error) {
-				ranTracer = true
-				txInstructions := newTracer.GetInstructions()
-				txExecutionState := newTracer.GetExecutionState()
-
-				fmt.Printf("Transaction %d generated %d instructions\n", currentTxIndex+1, len(txInstructions))
-
-				transpiler := transpiler.NewTranspiler()
-				_, err := transpiler.ProcessExecution(txInstructions, txExecutionState)
-				if err != nil {
-					return nil, fmt.Errorf("failed to transpile transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				assembly := transpiler.ToAssembly()
-				content, err := assembly.ToToolChainCompatibleAssembly()
-				if err != nil {
-					return nil, fmt.Errorf("failed to generate assembly for transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				zkVm := prover.NewZkProver(content)
-				output, err := zkVm.Prove(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("failed to prove transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				result := ProofResult{
-					TransactionHash:  currentTxHash.String(),
-					TransactionIndex: currentTxIndex + 1,
-					InstructionCount: len(txInstructions),
-					AppVK:            hex.EncodeToString(output.AppVK),
-					Proof:            hex.EncodeToString(output.Proof),
-				}
-
-				jsonData, err := json.MarshalIndent(result, "", "  ")
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal JSON for transaction %s: %v", currentTxHash.String(), err)
-				}
-
-				outputFolder := fmt.Sprintf("%d", blockNum)
-				err = os.MkdirAll(outputFolder, 0755)
-				if err != nil {
-					fmt.Printf("Error creating directory %s: %v\n", outputFolder, err)
-				} else {
-					txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, currentTxIndex+1)
-					err := os.WriteFile(txOutputFile, jsonData, 0644)
-					if err != nil {
-						fmt.Printf("Error writing to file %s: %v\n", txOutputFile, err)
-					} else {
-						fmt.Printf("Transaction %d results written to: %s\n", currentTxIndex+1, txOutputFile)
-					}
-				}
-
-				return &prover.ResultsFile{}, nil
-			},
-		)
-		tracers.RegisterLookup(false, customTracer)
-
-		for i, txInterface := range txs {
-			tx, ok := txInterface.(*ethapi.RPCTransaction)
-			if !ok {
-				fmt.Printf("Skipping invalid transaction %d (type: %T)\n", i+1, txInterface)
-				continue
-			}
-
-			txHash := tx.Hash
-
-			// Check if transaction already exists
-			outputFolder := fmt.Sprintf("%d", blockNum)
-			txOutputFile := fmt.Sprintf("%s/tx_%d.json", outputFolder, i+1)
-			if _, err := os.Stat(txOutputFile); err == nil {
-				fmt.Printf("Transaction %d/%d already exists, skipping: %s\n", i+1, len(txs), txHash.String())
-				continue
-			}
-
-			fmt.Printf("Processing transaction %d/%d: %s\n", i+1, len(txs), txHash.String())
-
-			// Set current transaction context for tracer callback
-			currentTxIndex = i
-			currentTxHash = txHash
-			ranTracer = false
-
-			var buf bytes.Buffer
-			stream := jsonstream.New(&buf)
-
-			tracerName := "Mine"
-			timeout := "2m"
-			err = debugAPI.TraceTransaction(
-				context.Background(),
-				txHash,
-				&config.TraceConfig{
-					Tracer:  &tracerName,
-					Timeout: &timeout,
-				},
-				stream,
-			)
-			if err != nil {
-				fmt.Printf("Failed to trace transaction %s: %v\n", txHash.String(), err)
-				continue
-			}
-
-			if !ranTracer {
-				fmt.Printf("Warning: Tracer did not run for transaction %s\n", txHash.String())
-			}
-		}
-
-		fmt.Printf("Completed processing %d transactions\n", len(txs))
-
-		return nil
+		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs, blockFetchTime)
 	}
 
 	if err := cmd.ExecuteContext(rootCtx); err != nil {
@@ -292,10 +175,9 @@ func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHas
 	return tracerResult.GetInstructions(), tracerResult.GetExecutionState(), nil
 }
 
-func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int) error {
+func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int, blockFetchTime time.Duration) error {
 	fmt.Printf("Processing block %d with %d transactions using parallel tracing...\n", blockNum, len(txs))
 
-	// Define structures for parallel processing
 	type TraceJob struct {
 		Index    int
 		TxIndex  int
@@ -312,7 +194,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		Error        error
 	}
 
-	// Collect all valid transactions (limited by maxTxs if specified)
 	var jobs []TraceJob
 	for i, txInterface := range txs {
 		if maxTxs > 0 && i >= maxTxs {
@@ -333,7 +214,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		})
 	}
 
-	// Parallel tracing with semaphore to limit concurrency
 	maxConcurrent := 5
 	semaphore := make(chan struct{}, maxConcurrent)
 	results := make([]TraceResult, len(jobs))
@@ -341,13 +221,13 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 
 	fmt.Printf("Tracing %d transactions in parallel (max %d concurrent)...\n", len(jobs), maxConcurrent)
 
-	// Launch all tracing goroutines
+	txFetchStart := time.Now()
+
 	for _, job := range jobs {
 		wg.Add(1)
 		go func(j TraceJob) {
 			defer wg.Done()
 
-			// Acquire semaphore to limit concurrency
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
@@ -373,16 +253,16 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}(job)
 	}
 
-	// Wait for all traces to complete
 	fmt.Printf("Waiting for all %d transactions to complete tracing...\n", len(jobs))
 	wg.Wait()
-	fmt.Printf("All transactions traced successfully!\n")
+	txFetchTime := time.Since(txFetchStart)
+	fmt.Printf("All transactions traced successfully in %v\n", txFetchTime)
 
-	// Process all transactions with boundaries in one transpiler
 	fmt.Printf("Processing all %d traced transactions with boundaries...\n", len(results))
-	blockTranspiler := transpiler.NewTranspiler() // Use working version for now
-
+	blockTranspiler := transpiler.NewTranspiler()
 	var allTxResults []ProofResult
+
+	transpileStart := time.Now()
 
 	for i, result := range results {
 		if result.Error != nil {
@@ -398,7 +278,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 			return fmt.Errorf("failed to transpile transaction %s: %v", result.TxHash.String(), err)
 		}
 
-		// Add transaction boundary (except for the last transaction)
 		if i < len(results)-1 {
 			blockTranspiler.AddTransactionBoundary()
 		}
@@ -410,7 +289,9 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		})
 	}
 
-	// Generate assembly for the entire block with transaction boundaries
+	transpileTime := time.Since(transpileStart)
+	fmt.Printf("Transpilation completed in %v\n", transpileTime)
+
 	fmt.Printf("Generating assembly for block...\n")
 	assemblyStart := time.Now()
 	assembly := blockTranspiler.ToAssembly()
@@ -422,7 +303,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		return fmt.Errorf("failed to generate assembly for block: %v", err)
 	}
 
-	// Write debug assembly if requested
 	if debugAssembly {
 		err := os.WriteFile(assemblyFile, []byte(content), 0644)
 		if err != nil {
@@ -432,12 +312,11 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}
 	}
 
-	// Generate proof for the entire block (if not skipped)
 	var output prover.ProofGeneration
+	var proveTime time.Duration
 	if skipProof {
 		fmt.Printf("Skipping ZK proof generation (--skip-proof enabled)\n")
 
-		// Save debug mappings when skipping proof
 		if debugMode {
 			debugFile := fmt.Sprintf("debug_mappings_block_%d.json", blockNum)
 			if saveErr := blockTranspiler.SaveDebugMappings(debugFile); saveErr != nil {
@@ -452,11 +331,10 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		zkVm := prover.NewZkProver(content)
 		var err error
 		output, err = zkVm.Prove(ctx)
-		proveTime := time.Since(proveStart)
+		proveTime = time.Since(proveStart)
 
 		if err != nil {
 			fmt.Printf("ZK proof failed, saving debug info...\n")
-			// Save debug mappings for analysis
 			debugFile := fmt.Sprintf("debug_mappings_block_%d.json", blockNum)
 			if saveErr := blockTranspiler.SaveDebugMappings(debugFile); saveErr != nil {
 				fmt.Printf("Failed to save debug mappings: %v\n", saveErr)
@@ -464,7 +342,6 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 				fmt.Printf("Debug mappings saved to: %s\n", debugFile)
 			}
 
-			// If not in debug mode, suggest running with debug mode
 			if !debugMode {
 				fmt.Printf("Re-run with --debug-mode for detailed transpilation analysis\n")
 			}
@@ -473,61 +350,50 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}
 
 		fmt.Printf("ZK proof generation completed in %v\n", proveTime)
+		fmt.Printf("  - Build: %v\n", time.Duration(output.Timing.BuildTimeMs)*time.Millisecond)
+		fmt.Printf("  - Keygen: %v\n", time.Duration(output.Timing.KeygenTimeMs)*time.Millisecond)
+		fmt.Printf("  - Setup total: %v\n", time.Duration(output.Timing.SetupTimeMs)*time.Millisecond)
+		fmt.Printf("  - Prove command: %v\n", time.Duration(output.Timing.ProveTimeMs)*time.Millisecond)
+		fmt.Printf("  - Read proof files: %v\n", time.Duration(output.Timing.ReadTimeMs)*time.Millisecond)
 	}
 
-	// Create block result
-	if skipProof {
-		// Create result without proof data
-		blockResult := struct {
-			BlockNumber       uint64        `json:"block_number"`
-			TransactionCount  int           `json:"transaction_count"`
-			Transactions      []ProofResult `json:"transactions"`
-			TotalInstructions int           `json:"total_instructions"`
-			Status            string        `json:"status"`
-		}{
-			BlockNumber:      blockNum,
-			TransactionCount: len(allTxResults),
-			Transactions:     allTxResults,
-			Status:           "transpiled_no_proof",
-		}
-
-		for _, txResult := range allTxResults {
-			blockResult.TotalInstructions += txResult.InstructionCount
-		}
-
-		jsonData, err := json.MarshalIndent(blockResult, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON for block: %v", err)
-		}
-
-		outputFile := fmt.Sprintf("block_%d.json", blockNum)
-		err = os.WriteFile(outputFile, jsonData, 0644)
-		if err != nil {
-			fmt.Printf("Error writing to file %s: %v\n", outputFile, err)
-		} else {
-			fmt.Printf("Block %d results written to: %s\n", blockNum, outputFile)
-		}
-
-		fmt.Printf("Completed block transpilation with %d transactions and %d total instructions\n",
-			len(allTxResults), blockResult.TotalInstructions)
-
-		return nil
-	}
-
-	// Create result with proof data
 	blockResult := struct {
-		BlockNumber       uint64        `json:"block_number"`
-		TransactionCount  int           `json:"transaction_count"`
-		Transactions      []ProofResult `json:"transactions"`
-		TotalInstructions int           `json:"total_instructions"`
-		AppVK             string        `json:"app_vk"`
-		Proof             string        `json:"proof"`
+		BlockNumber        uint64        `json:"block_number"`
+		TransactionCount   int           `json:"transaction_count"`
+		Transactions       []ProofResult `json:"transactions"`
+		TotalInstructions  int           `json:"total_instructions"`
+		BlockFetchTimeMs   int64         `json:"block_fetch_time_ms"`
+		TxFetchTimeMs      int64         `json:"tx_fetch_time_ms"`
+		TranspileTimeMs    int64         `json:"transpile_time_ms"`
+		AssemblyTimeMs     int64         `json:"assembly_time_ms"`
+		ProofTimeMs        int64         `json:"proof_time_ms"`
+		ProofBuildTimeMs   int64         `json:"proof_build_time_ms"`
+		ProofKeygenTimeMs  int64         `json:"proof_keygen_time_ms"`
+		ProofSetupTimeMs   int64         `json:"proof_setup_time_ms"`
+		ProofProveTimeMs   int64         `json:"proof_prove_time_ms"`
+		ProofReadTimeMs    int64         `json:"proof_read_time_ms"`
+		TotalTimeMs        int64         `json:"total_time_ms"`
+		AppVK              string        `json:"app_vk"`
+		Proof              string        `json:"proof"`
+		Timestamp          string        `json:"timestamp"`
 	}{
-		BlockNumber:      blockNum,
-		TransactionCount: len(allTxResults),
-		Transactions:     allTxResults,
-		AppVK:            hex.EncodeToString(output.AppVK),
-		Proof:            hex.EncodeToString(output.Proof),
+		BlockNumber:       blockNum,
+		TransactionCount:  len(allTxResults),
+		Transactions:      allTxResults,
+		AppVK:             hex.EncodeToString(output.AppVK),
+		Proof:             hex.EncodeToString(output.Proof),
+		BlockFetchTimeMs:  blockFetchTime.Milliseconds(),
+		TxFetchTimeMs:     txFetchTime.Milliseconds(),
+		TranspileTimeMs:   transpileTime.Milliseconds(),
+		AssemblyTimeMs:    assemblyTime.Milliseconds(),
+		ProofTimeMs:       proveTime.Milliseconds(),
+		ProofBuildTimeMs:  output.Timing.BuildTimeMs,
+		ProofKeygenTimeMs: output.Timing.KeygenTimeMs,
+		ProofSetupTimeMs:  output.Timing.SetupTimeMs,
+		ProofProveTimeMs:  output.Timing.ProveTimeMs,
+		ProofReadTimeMs:   output.Timing.ReadTimeMs,
+		TotalTimeMs:       (blockFetchTime + txFetchTime + transpileTime + assemblyTime + proveTime).Milliseconds(),
+		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 	}
 
 	for _, txResult := range allTxResults {

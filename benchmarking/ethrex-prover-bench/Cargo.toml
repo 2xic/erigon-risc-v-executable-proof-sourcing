@@ -1,0 +1,31 @@
+[package]
+name = "ethrex-prover-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ethrex-prover-bench"
+path = "src/main.rs"
+
+[dependencies]
+# Ethrex dependencies
+ethrex-prover-lib = { path = "../ethrex/crates/l2/prover", package = "ethrex-prover", default-features = false }
+ethrex-rpc = { path = "../ethrex/crates/networking/rpc" }
+ethrex-common = { path = "../ethrex/crates/common" }
+guest_program = { path = "../ethrex/crates/l2/prover/src/guest_program", default-features = false }
+
+# Standard dependencies
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = ["sp1"]
+risc0 = ["ethrex-prover-lib/risc0"]
+sp1 = ["ethrex-prover-lib/sp1"]
+gpu = ["ethrex-prover-lib/gpu"]
