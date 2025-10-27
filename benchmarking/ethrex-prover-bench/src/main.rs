@@ -20,10 +20,10 @@ use tracing::info;
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
-    rpc_url: String,
+    rpc_url: Option<String>,
 
     #[arg(short, long)]
-    block_number: u64,
+    block_number: Option<u64>,
 
     #[arg(long)]
     end_block: Option<u64>,
@@ -33,6 +33,9 @@ struct Args {
 
     #[arg(short = 'w', long)]
     witness_file: Option<PathBuf>,
+
+    #[arg(short = 'b', long)]
+    block_file: Option<PathBuf>,
 
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -65,26 +68,55 @@ async fn main() -> Result<()> {
     let backend = Backend::SP1;
 
     info!("Ethrex Prover Benchmark (L1 blocks)");
-    info!("RPC URL: {}", args.rpc_url);
-    info!("Block: {}", args.block_number);
+    if let Some(ref rpc_url) = args.rpc_url {
+        info!("RPC URL: {}", rpc_url);
+    }
     if let Some(end) = args.end_block {
         info!("End block: {}", end);
     }
     info!("Backend: {:?}", backend);
 
-    let client = EthClient::new(&args.rpc_url)
-        .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
-
-    info!("Fetching block {} from RPC...", args.block_number);
     let fetch_start = Instant::now();
+    let (block, block_number) = if let Some(block_path) = &args.block_file {
+        info!("Loading block from file: {:?}", block_path);
+        let block_json = fs::read_to_string(block_path)
+            .map_err(|e| anyhow!("Failed to read block file: {}", e))?;
+        let block_data: Value = serde_json::from_str(&block_json)
+            .map_err(|e| anyhow!("Failed to parse block JSON: {}", e))?;
 
-    let block = client
-        .get_raw_block(BlockIdentifier::Number(args.block_number))
-        .await
-        .map_err(|e| anyhow!("Failed to fetch block {}: {}", args.block_number, e))?;
+        let result = block_data.get("result")
+            .ok_or_else(|| anyhow!("Block JSON missing 'result' field"))?;
+
+        let block_number = result.get("number")
+            .and_then(|n| n.as_str())
+            .ok_or_else(|| anyhow!("Block JSON missing 'number' field"))?;
+        let block_number = u64::from_str_radix(block_number.trim_start_matches("0x"), 16)
+            .map_err(|e| anyhow!("Failed to parse block number: {}", e))?;
+
+        let block = serde_json::from_value(result.clone())
+            .map_err(|e| anyhow!("Failed to deserialize block data: {}", e))?;
+
+        (block, block_number)
+    } else {
+        let rpc_url = args.rpc_url.as_ref()
+            .ok_or_else(|| anyhow!("Either --block-file or --rpc-url must be provided"))?;
+        let block_number = args.block_number
+            .ok_or_else(|| anyhow!("--block-number is required when using RPC"))?;
+
+        let client = EthClient::new(rpc_url)
+            .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
+
+        info!("Fetching block {} from RPC...", block_number);
+        let block = client
+            .get_raw_block(BlockIdentifier::Number(block_number))
+            .await
+            .map_err(|e| anyhow!("Failed to fetch block {}: {}", block_number, e))?;
+
+        (block, block_number)
+    };
 
     let fetch_duration = fetch_start.elapsed();
-    info!("Fetched block in {:?}", fetch_duration);
+    info!("Got block {} in {:?}", block_number, fetch_duration);
 
     let witness_start = Instant::now();
     let rpc_witness = if let Some(witness_path) = &args.witness_file {
@@ -100,9 +132,14 @@ async fn main() -> Result<()> {
         serde_json::from_value(result.clone())
             .map_err(|e| anyhow!("Failed to deserialize witness data: {}", e))?
     } else {
+        let rpc_url = args.rpc_url.as_ref()
+            .ok_or_else(|| anyhow!("Either --witness-file or --rpc-url must be provided"))?;
+        let client = EthClient::new(rpc_url)
+            .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
+
         info!("Fetching execution witness from RPC...");
         client
-            .get_witness(BlockIdentifier::Number(args.block_number), None)
+            .get_witness(BlockIdentifier::Number(block_number), None)
             .await
             .map_err(|e| anyhow!("Failed to fetch execution witness: {}", e))?
     };
@@ -118,7 +155,7 @@ async fn main() -> Result<()> {
     let execution_witness = execution_witness_from_rpc_chain_config(
         rpc_witness,
         chain_config,
-        args.block_number,
+        block_number,
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
@@ -171,7 +208,7 @@ async fn main() -> Result<()> {
 
     // Determine output file path
     let output_path = args.output.unwrap_or_else(|| {
-        PathBuf::from(format!("{}_ethrex.json", args.block_number))
+        PathBuf::from(format!("{}_ethrex.json", block_number))
     });
 
     // Write JSON output

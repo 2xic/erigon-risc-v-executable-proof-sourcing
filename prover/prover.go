@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"time"
 )
 
 type ZkProverError struct {
@@ -84,10 +85,20 @@ func (cli *Cli) readFile(name string) ([]byte, error) {
 	return content, nil
 }
 
+type ProofTiming struct {
+	BuildTimeMs  int64
+	KeygenTimeMs int64
+	SetupTimeMs  int64
+	ProveTimeMs  int64
+	ReadTimeMs   int64
+	TotalTimeMs  int64
+}
+
 type ProofGeneration struct {
 	Proof  []byte
 	AppVK  []byte
 	Stdout string
+	Timing ProofTiming
 }
 
 type VerificationResult struct {
@@ -101,16 +112,21 @@ type ResultsFile struct {
 }
 
 func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
-	cli, err := zkVm.SetupExecution(ctx)
+	setupStart := time.Now()
+	cli, setupTiming, err := zkVm.SetupExecution(ctx)
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to setup execution", err)
 	}
+	setupTime := time.Since(setupStart)
 
+	proveStart := time.Now()
 	output, err := cli.Execute(ctx, "cargo", "openvm", "prove", "app")
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
+	proveTime := time.Since(proveStart)
 
+	readStart := time.Now()
 	proof, err := cli.readFile("prover.app.proof")
 	if err != nil {
 		return ProofGeneration{}, err
@@ -119,11 +135,22 @@ func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
 	if err != nil {
 		return ProofGeneration{}, err
 	}
+	readTime := time.Since(readStart)
+
+	totalTime := setupTime + proveTime + readTime
 
 	results := ProofGeneration{
 		Proof:  proof,
 		AppVK:  appVk,
 		Stdout: output,
+		Timing: ProofTiming{
+			BuildTimeMs:  setupTiming.BuildTimeMs,
+			KeygenTimeMs: setupTiming.KeygenTimeMs,
+			SetupTimeMs:  setupTime.Milliseconds(),
+			ProveTimeMs:  proveTime.Milliseconds(),
+			ReadTimeMs:   readTime.Milliseconds(),
+			TotalTimeMs:  totalTime.Milliseconds(),
+		},
 	}
 
 	return results, nil
@@ -165,7 +192,7 @@ func (zkVm *ZkProver) StarkProve(ctx context.Context) (ProofGeneration, error) {
 }
 
 func (zkVm *ZkProver) TestRun(ctx context.Context) (string, error) {
-	cli, err := zkVm.SetupExecution(ctx)
+	cli, _, err := zkVm.SetupExecution(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -244,24 +271,39 @@ func VerifyFromResults(ctx context.Context, resultsPath string) (VerificationRes
 	return result, nil
 }
 
-func (zkVm *ZkProver) SetupExecution(ctx context.Context) (*Cli, error) {
+type SetupTiming struct {
+	BuildTimeMs  int64
+	KeygenTimeMs int64
+}
+
+func (zkVm *ZkProver) SetupExecution(ctx context.Context) (*Cli, SetupTiming, error) {
 	workSpace, err := setupWorkspace([]byte(zkVm.content))
 	if err != nil {
-		return nil, NewZkProverError("failed to setup workspace", err)
+		return nil, SetupTiming{}, NewZkProverError("failed to setup workspace", err)
 	}
 
 	cli := NewCli(workSpace)
 
+	buildStart := time.Now()
 	_, err = cli.Execute(ctx, "cargo", "openvm", "build")
 	if err != nil {
-		return nil, NewZkProverError("failed to build project", err)
+		return nil, SetupTiming{}, NewZkProverError("failed to build project", err)
 	}
+	buildTime := time.Since(buildStart)
 
+	keygenStart := time.Now()
 	_, err = cli.Execute(ctx, "cargo", "openvm", "keygen")
 	if err != nil {
-		return nil, NewZkProverError("failed to generate keys", err)
+		return nil, SetupTiming{}, NewZkProverError("failed to generate keys", err)
 	}
-	return &cli, nil
+	keygenTime := time.Since(keygenStart)
+
+	timing := SetupTiming{
+		BuildTimeMs:  buildTime.Milliseconds(),
+		KeygenTimeMs: keygenTime.Milliseconds(),
+	}
+
+	return &cli, timing, nil
 }
 
 func setupWorkspace(newRiscContent []byte) (string, error) {

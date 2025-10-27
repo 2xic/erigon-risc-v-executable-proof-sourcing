@@ -262,6 +262,8 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	blockTranspiler := transpiler.NewTranspiler()
 	var allTxResults []ProofResult
 
+	transpileStart := time.Now()
+
 	for i, result := range results {
 		if result.Error != nil {
 			fmt.Printf("Skipping transaction %d due to trace error: %v\n", result.TxIndex+1, result.Error)
@@ -286,6 +288,9 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 			InstructionCount: len(result.Instructions),
 		})
 	}
+
+	transpileTime := time.Since(transpileStart)
+	fmt.Printf("Transpilation completed in %v\n", transpileTime)
 
 	fmt.Printf("Generating assembly for block...\n")
 	assemblyStart := time.Now()
@@ -345,33 +350,50 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		}
 
 		fmt.Printf("ZK proof generation completed in %v\n", proveTime)
+		fmt.Printf("  - Build: %v\n", time.Duration(output.Timing.BuildTimeMs)*time.Millisecond)
+		fmt.Printf("  - Keygen: %v\n", time.Duration(output.Timing.KeygenTimeMs)*time.Millisecond)
+		fmt.Printf("  - Setup total: %v\n", time.Duration(output.Timing.SetupTimeMs)*time.Millisecond)
+		fmt.Printf("  - Prove command: %v\n", time.Duration(output.Timing.ProveTimeMs)*time.Millisecond)
+		fmt.Printf("  - Read proof files: %v\n", time.Duration(output.Timing.ReadTimeMs)*time.Millisecond)
 	}
 
 	blockResult := struct {
-		BlockNumber       uint64        `json:"block_number"`
-		TransactionCount  int           `json:"transaction_count"`
-		Transactions      []ProofResult `json:"transactions"`
-		TotalInstructions int           `json:"total_instructions"`
-		BlockFetchTimeMs  int64         `json:"block_fetch_time_ms"`
-		TxFetchTimeMs     int64         `json:"tx_fetch_time_ms"`
-		AssemblyTimeMs    int64         `json:"assembly_time_ms"`
-		ProofTimeMs       int64         `json:"proof_time_ms"`
-		TotalTimeMs       int64         `json:"total_time_ms"`
-		AppVK             string        `json:"app_vk"`
-		Proof             string        `json:"proof"`
-		Timestamp         string        `json:"timestamp"`
+		BlockNumber        uint64        `json:"block_number"`
+		TransactionCount   int           `json:"transaction_count"`
+		Transactions       []ProofResult `json:"transactions"`
+		TotalInstructions  int           `json:"total_instructions"`
+		BlockFetchTimeMs   int64         `json:"block_fetch_time_ms"`
+		TxFetchTimeMs      int64         `json:"tx_fetch_time_ms"`
+		TranspileTimeMs    int64         `json:"transpile_time_ms"`
+		AssemblyTimeMs     int64         `json:"assembly_time_ms"`
+		ProofTimeMs        int64         `json:"proof_time_ms"`
+		ProofBuildTimeMs   int64         `json:"proof_build_time_ms"`
+		ProofKeygenTimeMs  int64         `json:"proof_keygen_time_ms"`
+		ProofSetupTimeMs   int64         `json:"proof_setup_time_ms"`
+		ProofProveTimeMs   int64         `json:"proof_prove_time_ms"`
+		ProofReadTimeMs    int64         `json:"proof_read_time_ms"`
+		TotalTimeMs        int64         `json:"total_time_ms"`
+		AppVK              string        `json:"app_vk"`
+		Proof              string        `json:"proof"`
+		Timestamp          string        `json:"timestamp"`
 	}{
-		BlockNumber:      blockNum,
-		TransactionCount: len(allTxResults),
-		Transactions:     allTxResults,
-		AppVK:            hex.EncodeToString(output.AppVK),
-		Proof:            hex.EncodeToString(output.Proof),
-		BlockFetchTimeMs: blockFetchTime.Milliseconds(),
-		TxFetchTimeMs:    txFetchTime.Milliseconds(),
-		AssemblyTimeMs:   assemblyTime.Milliseconds(),
-		ProofTimeMs:      proveTime.Milliseconds(),
-		TotalTimeMs:      (blockFetchTime + txFetchTime + assemblyTime + proveTime).Milliseconds(),
-		Timestamp:        time.Now().UTC().Format(time.RFC3339),
+		BlockNumber:       blockNum,
+		TransactionCount:  len(allTxResults),
+		Transactions:      allTxResults,
+		AppVK:             hex.EncodeToString(output.AppVK),
+		Proof:             hex.EncodeToString(output.Proof),
+		BlockFetchTimeMs:  blockFetchTime.Milliseconds(),
+		TxFetchTimeMs:     txFetchTime.Milliseconds(),
+		TranspileTimeMs:   transpileTime.Milliseconds(),
+		AssemblyTimeMs:    assemblyTime.Milliseconds(),
+		ProofTimeMs:       proveTime.Milliseconds(),
+		ProofBuildTimeMs:  output.Timing.BuildTimeMs,
+		ProofKeygenTimeMs: output.Timing.KeygenTimeMs,
+		ProofSetupTimeMs:  output.Timing.SetupTimeMs,
+		ProofProveTimeMs:  output.Timing.ProveTimeMs,
+		ProofReadTimeMs:   output.Timing.ReadTimeMs,
+		TotalTimeMs:       (blockFetchTime + txFetchTime + transpileTime + assemblyTime + proveTime).Milliseconds(),
+		Timestamp:         time.Now().UTC().Format(time.RFC3339),
 	}
 
 	for _, txResult := range allTxResults {
