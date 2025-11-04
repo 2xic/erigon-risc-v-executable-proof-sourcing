@@ -23,7 +23,7 @@ reth-stateless = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.7.
 reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v1.7.0" }
 
 # RISC Zero dependencies (matching zeth)
-risc0-zkvm = "3.0.3"
+risc0-zkvm = { version = "3.0.3", features = ["prove"] }
 
 # Standard dependencies
 tokio = { version = "1", features = ["full"] }

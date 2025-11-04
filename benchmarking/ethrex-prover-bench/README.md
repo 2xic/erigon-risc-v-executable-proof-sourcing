@@ -2,13 +2,24 @@
 
 ## Setup
 ```bash
+curl https://sh.rustup.rs -sSf | sh
 curl -L https://sp1up.succinct.xyz | bash
-sp1up --version 5.0.8
+# sp1up --version 5.0.8
+sp1up
+```
+
+```bash
+curl -L https://risczero.com/install | bash  
+~/.risc0/bin/rzup install cargo-risczero 3.0.3  
+~/.risc0/bin/rzup install risc0-groth16  
+~/.risc0/bin/rzup install rust
 ```
 
 ## Building
 Building
 ```bash
+sudo apt update 
+sudo apt install -y pkg-config libssl-dev clang libclang-dev build-essential cmake
 cargo build --release --features sp1
 ```
 
