@@ -95,10 +95,11 @@ type ProofTiming struct {
 }
 
 type ProofGeneration struct {
-	Proof  []byte
-	AppVK  []byte
-	Stdout string
-	Timing ProofTiming
+	Proof             []byte
+	AppVK             []byte
+	Stdout            string
+	Timing            ProofTiming
+	EstimatedInstructions int64
 }
 
 type VerificationResult struct {
@@ -135,6 +136,10 @@ func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
 	if err != nil {
 		return ProofGeneration{}, err
 	}
+	
+	// Estimate instruction count from compiled ELF
+	estimatedInstructions := zkVm.getEstimatedInstructionCount(cli)
+	
 	readTime := time.Since(readStart)
 
 	totalTime := setupTime + proveTime + readTime
@@ -151,6 +156,7 @@ func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
 			ReadTimeMs:   readTime.Milliseconds(),
 			TotalTimeMs:  totalTime.Milliseconds(),
 		},
+		EstimatedInstructions: estimatedInstructions,
 	}
 
 	return results, nil
@@ -364,4 +370,16 @@ func extractFile(fsys embed.FS, srcPath, dstPath string) error {
 	}()
 	_, err = io.Copy(dst, src)
 	return err
+}
+
+func (zkVm *ZkProver) getEstimatedInstructionCount(cli *Cli) int64 {
+	// Run objdump and count total lines
+	output, err := cli.Execute(context.Background(), "riscv64-unknown-elf-objdump", "-d", "target/riscv32im-risc0-zkvm-elf/release/prover")
+	if err != nil {
+		return 0
+	}
+	
+	// Count total lines
+	lines := bytes.Split([]byte(output), []byte("\n"))
+	return int64(len(lines))
 }

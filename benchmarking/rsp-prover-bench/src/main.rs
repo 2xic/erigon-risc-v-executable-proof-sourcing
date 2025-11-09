@@ -40,6 +40,8 @@ struct BenchmarkResult {
     execution_time_ms: u64,
     proof_time_ms: Option<u64>,
     total_time_ms: u64,
+    total_cycles: u64,
+    total_syscalls: u64,
     timestamp: String,
 }
 
@@ -191,7 +193,10 @@ async fn main() -> Result<()> {
     let exec_duration = exec_start.elapsed();
 
     info!("Execution completed in {:?}", exec_duration);
-    info!("Total cycles: {}", report.total_instruction_count());
+    let total_cycles = report.total_instruction_count();
+    let total_syscalls = report.total_syscall_count();
+    info!("Total opcode: {}", total_cycles);
+    info!("Total syscalls: {}", total_syscalls);
 
     info!("Generating compressed proof...");
     let prove_start = Instant::now();
@@ -211,6 +216,8 @@ async fn main() -> Result<()> {
         execution_time_ms: exec_duration.as_millis() as u64,
         proof_time_ms: Some(prove_duration.as_millis() as u64),
         total_time_ms: total_duration.as_millis() as u64,
+        total_cycles,
+        total_syscalls,
         timestamp: Utc::now().to_rfc3339(),
     };
 

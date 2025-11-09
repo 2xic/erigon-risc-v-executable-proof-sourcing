@@ -4,6 +4,11 @@ Project repository for implementing the [Erigon: RISCV Executable Proof Sourcing
 
 Current status will be updated in the [Opcode status](./docs/opcode_status.md) document.
 
+## Setup
+```bash
+git submodule update --init --recursive
+```
+
 ## Resources
 
 ### Documents

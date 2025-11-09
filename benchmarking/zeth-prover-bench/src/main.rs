@@ -38,6 +38,7 @@ struct BenchmarkResult {
     validation_time_ms: u64,
     proof_time_ms: u64,
     total_time_ms: u64,
+    total_cycles: u64,
     timestamp: String,
 }
 
@@ -57,7 +58,6 @@ async fn main() -> Result<()> {
     info!("Block file: {:?}", args.block_file);
     info!("Chain ID: {}", args.chain_id);
 
-    // Load files
     let load_start = Instant::now();
 
     info!("Loading execution witness from file...");
@@ -68,7 +68,6 @@ async fn main() -> Result<()> {
     let block_json = fs::read_to_string(&args.block_file)
         .map_err(|e| anyhow!("Failed to read block file: {}", e))?;
 
-    // Parse witness
     let witness_value: Value = serde_json::from_str(&witness_json)
         .map_err(|e| anyhow!("Failed to parse witness JSON: {}", e))?;
     let witness_data = if let Some(result) = witness_value.get("result") {
@@ -77,7 +76,6 @@ async fn main() -> Result<()> {
         witness_value
     };
 
-    // Parse block
     let block_value: Value = serde_json::from_str(&block_json)
         .map_err(|e| anyhow!("Failed to parse block JSON: {}", e))?;
     let block_data = if let Some(result) = block_value.get("result") {
@@ -86,7 +84,6 @@ async fn main() -> Result<()> {
         block_value
     };
 
-    // Parse as RPC types first
     let execution_witness: alloy_rpc_types_debug::ExecutionWitness =
         serde_json::from_value(witness_data)
             .map_err(|e| anyhow!("Failed to deserialize execution witness: {}", e))?;
@@ -94,11 +91,9 @@ async fn main() -> Result<()> {
     let rpc_block: alloy_rpc_types::Block = serde_json::from_value(block_data)
         .map_err(|e| anyhow!("Failed to deserialize RPC block: {}", e))?;
 
-    // Convert to reth types for zeth
     let block: reth_ethereum_primitives::Block = rpc_block.try_into()
         .map_err(|e: std::convert::Infallible| anyhow!("Failed to convert block: {:?}", e))?;
 
-    // Use ExecutionWitness directly from reth_stateless
     let witness = reth_stateless::ExecutionWitness {
         state: execution_witness.state,
         codes: execution_witness.codes,
@@ -106,11 +101,9 @@ async fn main() -> Result<()> {
         keys: execution_witness.keys,
     };
 
-    // Recover signers from transactions
     let signers = zeth_host::recover_signers(block.body.transactions())
         .context("Failed to recover transaction signers")?;
 
-    // Construct the zeth Input
     let input = Input {
         block,
         witness,
@@ -128,25 +121,15 @@ async fn main() -> Result<()> {
     let input_size = zeth_host::to_zkvm_input_bytes(&input)?.len();
     info!("Input size: {:.3} MB", input_size as f64 / 1e6);
 
-    // Create a mock processor for validation (we don't need RPC)
-    // We'll validate using the zeth-core validation logic directly
     info!("Validating block execution...");
     let validation_start = Instant::now();
 
-    // Note: zeth uses a BlockProcessor which needs an RPC provider
-    // For offline benchmarking with cached data, we can use the data directly
-    // but we need to set up a minimal environment
-
-    // For now, we'll skip validation and go straight to proving
-    // since the input should already be validated when it was cached
     let validation_duration = validation_start.elapsed();
     info!("Validation skipped (using pre-validated cached input)");
 
-    // Generate proof
     info!("Generating proof with RISC Zero...");
     let proof_start = Instant::now();
 
-    // Determine which guest binary to use based on chain_id
     let guest_name = match args.chain_id {
         1 => {
             info!("Using mainnet guest");
@@ -171,21 +154,36 @@ async fn main() -> Result<()> {
 
     info!("Guest ELF size: {} bytes", guest_elf.len());
 
-    // Compute the image ID from the ELF
     let image_id = risc0_zkvm::compute_image_id(&guest_elf)
         .context("Failed to compute image ID from guest ELF")?;
     info!("Image ID: {}", hex::encode(&image_id));
 
-    // Serialize input for zkVM
     let input_bytes = zeth_host::to_zkvm_input_bytes(&input)?;
 
-    // Create prover environment
     let env = risc0_zkvm::ExecutorEnv::builder()
         .write_slice(&input_bytes)
         .build()
         .context("Failed to build executor environment")?;
 
-    // Generate the proof
+    info!("Executing to measure cycles...");
+    let exec_start = Instant::now();
+    let executor = risc0_zkvm::default_executor();
+    
+    let exec_env = risc0_zkvm::ExecutorEnv::builder()
+        .write_slice(&input_bytes)
+        .build()
+        .context("Failed to build executor environment for cycle counting")?;
+    
+    let session = executor
+        .execute(exec_env, &guest_elf)
+        .map_err(|e| anyhow!("Failed to execute for cycle counting: {}", e))?;
+    
+    let exec_duration = exec_start.elapsed();
+    info!("Execution completed in {:?}", exec_duration);
+
+    let total_cycles = session.segments.iter().map(|s| s.cycles as u64).sum::<u64>();
+    info!("Total cycles: {}", total_cycles);
+
     info!("Creating prover...");
     let prover = risc0_zkvm::default_prover();
 
@@ -209,7 +207,6 @@ async fn main() -> Result<()> {
     let proof_duration = proof_start.elapsed();
     info!("Proof generated in {:?}", proof_duration);
 
-    // Verify the proof
     info!("Verifying proof...");
     receipt
         .verify(image_id)
@@ -226,7 +223,6 @@ async fn main() -> Result<()> {
 
     let total_duration = load_duration + validation_duration + proof_duration;
 
-    // Create benchmark result
     let result = BenchmarkResult {
         block_number,
         chain_id: args.chain_id,
@@ -235,10 +231,10 @@ async fn main() -> Result<()> {
         validation_time_ms: validation_duration.as_millis() as u64,
         proof_time_ms: proof_duration.as_millis() as u64,
         total_time_ms: total_duration.as_millis() as u64,
+        total_cycles,
         timestamp: Utc::now().to_rfc3339(),
     };
 
-    // Write results
     write_benchmark_results(&args, result, block_number)?;
 
     Ok(())

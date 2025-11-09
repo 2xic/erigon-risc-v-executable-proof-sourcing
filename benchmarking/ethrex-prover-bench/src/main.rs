@@ -12,6 +12,7 @@ use ethrex_rpc::{
 use guest_program::input::ProgramInput;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
+use sp1_sdk::{ProverClient, SP1Stdin};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -52,6 +53,8 @@ struct BenchmarkResult {
     execution_time_ms: u64,
     proof_time_ms: u64,
     total_time_ms: u64,
+    total_cycles: u64,
+    total_syscalls: u64,
     timestamp: String,
 }
 
@@ -162,7 +165,39 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
-    // Execute
+    // Execute with SP1 directly to get cycle counts (not timed for benchmark)
+    info!("Executing with SP1 to get metrics...");
+    
+    let prover_client = ProverClient::from_env();
+    
+    let input_data = ProgramInput {
+        blocks: vec![block.clone()],
+        execution_witness: execution_witness.clone(),
+        elasticity_multiplier: 2,
+        fee_config: None,
+    };
+    
+    let input_bytes = bincode::serialize(&input_data)
+        .map_err(|e| anyhow!("Failed to serialize input: {}", e))?;
+    
+    let mut stdin = SP1Stdin::new();
+    stdin.write_vec(input_bytes);
+    
+    // Need the guest ELF - assuming same location as ethrex uses
+    let guest_elf = std::fs::read("../ethrex/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/ethrex-guest")
+        .map_err(|e| anyhow!("Failed to read guest ELF: {}", e))?;
+    
+    // (not timed, just to get cycles counts)
+    let (_, report) = prover_client.execute(&guest_elf, &stdin).run()
+        .map_err(|e| anyhow!("Failed to execute with SP1: {}", e))?;
+    
+    let total_cycles = report.total_instruction_count();
+    let total_syscalls = report.total_syscall_count();
+    
+    info!("Total cycles: {}", total_cycles);
+    info!("Total syscalls: {}", total_syscalls);
+
+    // Execute with ethrex (timed for benchmark)
     info!("Executing with {:?} backend...", backend);
     let exec_start = Instant::now();
     let input_exec = ProgramInput {
@@ -174,9 +209,8 @@ async fn main() -> Result<()> {
     execute(backend, input_exec)
         .map_err(|e| anyhow!("Failed to execute: {}", e))?;
     let exec_duration = exec_start.elapsed();
-    info!("✓ Execution completed in {:?}", exec_duration);
+    info!("Execution completed in {:?}", exec_duration);
 
-    // Prove
     info!("Generating proof with {:?} backend...", backend);
     let prove_start = Instant::now();
     let input_prove = ProgramInput {
@@ -188,7 +222,17 @@ async fn main() -> Result<()> {
     let proof_output = prove(backend, input_prove, false)
         .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
     let prove_duration = prove_start.elapsed();
-    info!("✓ Proof generated in {:?}", prove_duration);
+    info!("Proof generated in {:?}", prove_duration);
+
+    match &proof_output {
+        ethrex_prover_lib::backend::ProveOutput::SP1(sp1_output) => {
+            info!("SP1 proof generated - execution report not exposed");
+            info!("Available fields: proof, vk (execution metrics not accessible)");
+        },
+        _ => {
+            info!("Backend doesn't support cycle counting");
+        }
+    }
 
     let batch_proof = to_batch_proof(proof_output, false)
         .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
@@ -196,7 +240,6 @@ async fn main() -> Result<()> {
 
     let total_duration = fetch_duration + witness_duration + exec_duration + prove_duration;
 
-    // Create benchmark result
     let result = BenchmarkResult {
         block_number,
         chain_id: args.chain_id,
@@ -206,15 +249,15 @@ async fn main() -> Result<()> {
         execution_time_ms: exec_duration.as_millis() as u64,
         proof_time_ms: prove_duration.as_millis() as u64,
         total_time_ms: total_duration.as_millis() as u64,
+        total_cycles,
+        total_syscalls,
         timestamp: Utc::now().to_rfc3339(),
     };
 
-    // Determine output file path
     let output_path = args.output.unwrap_or_else(|| {
         PathBuf::from(format!("{}_ethrex.json", block_number))
     });
 
-    // Write JSON output
     let json_output = serde_json::to_string_pretty(&result)
         .map_err(|e| anyhow!("Failed to serialize benchmark result: {}", e))?;
 

@@ -11,7 +11,7 @@ sp1up
 
 ## Build the RSP
 ```bash
-cargo build ---release 
+cargo build --release 
 ```
 
 ## To build the guest image
