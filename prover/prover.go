@@ -161,22 +161,21 @@ func (zkVm *ZkProver) Prove(ctx context.Context) (ProofGeneration, error) {
 }
 
 func (zkVm *ZkProver) StarkProve(ctx context.Context) (ProofGeneration, error) {
-	workSpace, err := setupWorkspace([]byte(zkVm.content))
+	setupStart := time.Now()
+	cli, setupTiming, err := zkVm.SetupExecution(ctx)
 	if err != nil {
-		return ProofGeneration{}, NewZkProverError("failed to setup workspace", err)
+		return ProofGeneration{}, NewZkProverError("failed to setup execution", err)
 	}
+	setupTime := time.Since(setupStart)
 
-	cli := NewCli(workSpace)
-	_, err = cli.Execute(ctx, "cargo", "openvm", "setup")
-	if err != nil {
-		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
-	}
-
+	proveStart := time.Now()
 	output, err := cli.Execute(ctx, "cargo", "openvm", "prove", "stark")
 	if err != nil {
 		return ProofGeneration{}, NewZkProverError("failed to execute prove command", err)
 	}
+	proveTime := time.Since(proveStart)
 
+	readStart := time.Now()
 	proof, err := cli.readFile("prover.stark.proof")
 	if err != nil {
 		return ProofGeneration{}, err
@@ -185,11 +184,26 @@ func (zkVm *ZkProver) StarkProve(ctx context.Context) (ProofGeneration, error) {
 	if err != nil {
 		return ProofGeneration{}, err
 	}
+	
+	estimatedInstructions := zkVm.getEstimatedInstructionCount(cli)
+	
+	readTime := time.Since(readStart)
+
+	totalTime := setupTime + proveTime + readTime
 
 	results := ProofGeneration{
 		Proof:  proof,
 		AppVK:  appVk,
 		Stdout: output,
+		Timing: ProofTiming{
+			BuildTimeMs:  setupTiming.BuildTimeMs,
+			KeygenTimeMs: setupTiming.KeygenTimeMs,
+			SetupTimeMs:  setupTime.Milliseconds(),
+			ProveTimeMs:  proveTime.Milliseconds(),
+			ReadTimeMs:   readTime.Milliseconds(),
+			TotalTimeMs:  totalTime.Milliseconds(),
+		},
+		EstimatedInstructions: estimatedInstructions,
 	}
 
 	return results, nil
