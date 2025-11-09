@@ -3,6 +3,11 @@
 - [rsp-prover-bench](./rsp-prover-bench/README.md)
 - [zeth](./zeth-prover-bench/README.md)
 
+## Enable cycle counting for ethrex 
+```bash
+cd ethrex && git apply ../ethrex-cycle-counting.patch
+```
+
 ## Getting data
 Block data:
 ```bash

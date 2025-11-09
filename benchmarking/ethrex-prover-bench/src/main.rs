@@ -3,6 +3,7 @@ use chrono::Utc;
 use clap::Parser;
 use ethrex_common::types::ChainConfig;
 use ethrex_prover_lib::{execute, prove, to_batch_proof, backend::Backend};
+use ethrex_l2_common::prover::ProofFormat;
 use ethrex_rpc::{
     clients::eth::EthClient,
     debug::execution_witness::execution_witness_from_rpc_chain_config,
@@ -12,7 +13,6 @@ use ethrex_rpc::{
 use guest_program::input::ProgramInput;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
-use sp1_sdk::{ProverClient, SP1Stdin};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -109,7 +109,8 @@ async fn main() -> Result<()> {
         let block_number = args.block_number
             .ok_or_else(|| anyhow!("--block-number is required when using RPC"))?;
 
-        let client = EthClient::new(rpc_url)
+        let url = rpc_url.parse().map_err(|e| anyhow!("Failed to parse RPC URL: {}", e))?;
+        let client = EthClient::new(url)
             .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
 
         info!("Fetching block {} from RPC...", block_number);
@@ -140,7 +141,8 @@ async fn main() -> Result<()> {
     } else {
         let rpc_url = args.rpc_url.as_ref()
             .ok_or_else(|| anyhow!("Either --witness-file or --rpc-url must be provided"))?;
-        let client = EthClient::new(rpc_url)
+        let url = rpc_url.parse().map_err(|e| anyhow!("Failed to parse RPC URL: {}", e))?;
+        let client = EthClient::new(url)
             .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
 
         info!("Fetching execution witness from RPC...");
@@ -165,51 +167,25 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
-    // Execute with SP1 directly to get cycle counts (not timed for benchmark)
-    info!("Executing with SP1 to get metrics...");
-    
-    let prover_client = ProverClient::from_env();
-    
-    let input_data = ProgramInput {
-        blocks: vec![block.clone()],
-        execution_witness: execution_witness.clone(),
-        elasticity_multiplier: 2,
-        fee_config: None,
-    };
-    
-    let input_bytes = bincode::serialize(&input_data)
-        .map_err(|e| anyhow!("Failed to serialize input: {}", e))?;
-    
-    let mut stdin = SP1Stdin::new();
-    stdin.write_vec(input_bytes);
-    
-    // Need the guest ELF - assuming same location as ethrex uses
-    let guest_elf = std::fs::read("../ethrex/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/ethrex-guest")
-        .map_err(|e| anyhow!("Failed to read guest ELF: {}", e))?;
-    
-    // (not timed, just to get cycles counts)
-    let (_, report) = prover_client.execute(&guest_elf, &stdin).run()
-        .map_err(|e| anyhow!("Failed to execute with SP1: {}", e))?;
-    
-    let total_cycles = report.total_instruction_count();
-    let total_syscalls = report.total_syscall_count();
-    
-    info!("Total cycles: {}", total_cycles);
-    info!("Total syscalls: {}", total_syscalls);
-
-    // Execute with ethrex (timed for benchmark)
+    // Execute with ethrex (now returns cycle counts)
     info!("Executing with {:?} backend...", backend);
     let exec_start = Instant::now();
     let input_exec = ProgramInput {
         blocks: vec![block.clone()],
         execution_witness: execution_witness.clone(),
         elasticity_multiplier: 2,
-        fee_config: None,
+        fee_configs: None,
     };
-    execute(backend, input_exec)
+    let exec_metrics = execute(backend, input_exec)
         .map_err(|e| anyhow!("Failed to execute: {}", e))?;
     let exec_duration = exec_start.elapsed();
+    
+    let total_cycles = exec_metrics.total_cycles;
+    let total_syscalls = exec_metrics.total_syscalls;
+    
     info!("Execution completed in {:?}", exec_duration);
+    info!("Total cycles: {}", total_cycles);
+    info!("Total syscalls: {}", total_syscalls);
 
     info!("Generating proof with {:?} backend...", backend);
     let prove_start = Instant::now();
@@ -217,9 +193,9 @@ async fn main() -> Result<()> {
         blocks: vec![block],
         execution_witness,
         elasticity_multiplier: 2,
-        fee_config: None,
+        fee_configs: None,
     };
-    let proof_output = prove(backend, input_prove, false)
+    let proof_output = prove(backend, input_prove, ProofFormat::Compressed)
         .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
     let prove_duration = prove_start.elapsed();
     info!("Proof generated in {:?}", prove_duration);
@@ -234,7 +210,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let batch_proof = to_batch_proof(proof_output, false)
+    let batch_proof = to_batch_proof(proof_output, ProofFormat::Compressed)
         .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
     info!("Batch proof type: {:?}", batch_proof);
 

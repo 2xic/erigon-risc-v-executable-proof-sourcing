@@ -1,6 +1,6 @@
 # Ethrex Prover Benchmark
 
-## Setup
+## Setup SP1
 ```bash
 curl https://sh.rustup.rs -sSf | sh
 curl -L https://sp1up.succinct.xyz | bash
@@ -8,6 +8,7 @@ curl -L https://sp1up.succinct.xyz | bash
 sp1up
 ```
 
+### For risc0 - unused currently
 ```bash
 curl -L https://risczero.com/install | bash  
 ~/.risc0/bin/rzup install cargo-risczero 3.0.3  
@@ -16,7 +17,7 @@ curl -L https://risczero.com/install | bash
 ```
 
 ## Building
-Building
+Building the benchmarking tool
 ```bash
 sudo apt update 
 sudo apt install -y pkg-config libssl-dev clang libclang-dev build-essential cmake
