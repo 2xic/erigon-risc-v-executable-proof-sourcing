@@ -195,7 +195,7 @@ async fn main() -> Result<()> {
         elasticity_multiplier: 2,
         fee_configs: None,
     };
-    let proof_output = prove(backend, input_prove, ProofFormat::Compressed)
+    let proof_output = prove(backend, input_prove, ProofFormat::Groth16)
         .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
     let prove_duration = prove_start.elapsed();
     info!("Proof generated in {:?}", prove_duration);
@@ -210,7 +210,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let batch_proof = to_batch_proof(proof_output, ProofFormat::Compressed)
+    let batch_proof = to_batch_proof(proof_output, ProofFormat::Groth16)
         .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
     info!("Batch proof type: {:?}", batch_proof);
 

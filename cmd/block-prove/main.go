@@ -424,7 +424,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	}
 
 	fmt.Printf("Completed block transpilation with %d transactions and %d total instructions\n",
-		len(allTxResults), blockResult.TotalInstructions)
+		len(allTxResults), blockResult.TotalEvmInstructions)
 
 	return nil
 }
