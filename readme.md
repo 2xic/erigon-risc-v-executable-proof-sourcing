@@ -2,8 +2,6 @@
 
 Project repository for implementing the [Erigon: RISCV Executable Proof Sourcing](https://github.com/2xic/cohort-six/blob/add-project-proposal/projects/erigon_riscv_proof_sourcing.md) project.
 
-Current status will be updated in the [Opcode status](./docs/opcode_status.md) document.
-
 ## Setup
 ```bash
 git submodule update --init --recursive
@@ -15,7 +13,7 @@ git submodule update --init --recursive
 Some documents that might be of interests:
 - [CLI Tool](./docs/cli.md)
 - [Testing setup](./docs/testing_setup.md)
-- [Opcode status](./docs/opcode_status.md)
+- [Transpiler status](./docs/transpiler_status.md)
 
 ### Project specific
 - [Development updates](https://github.com/eth-protocol-fellows/cohort-six/blob/master/development-updates.md) 

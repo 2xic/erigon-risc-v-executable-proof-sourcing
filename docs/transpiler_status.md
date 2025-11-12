@@ -1,11 +1,21 @@
-# Opcode Implementation Status
-We can currently execute the following opcodes with the following caveats
-- No external state support
-  - State is loaded and used by using the .data section of the program.
-- No precompile support
-- ~~No 256-bit arithmetics support~~
+# Transpiler Status
 
-## Opcodes
+## Implementation Simplifications
+
+### Opcodes simplifications
+Many opcodes just push pre-computed results from execution traces rather than performing actual computation:
+- Complex arithmetic: `SDIV`, `MOD`, `ADDMOD`, `MULMOD`, `EXP`
+- Blockchain state: `BALANCE`, `BLOCKHASH`, `DIFFICULTY`, `BASEFEE`
+- Memory/contract ops: `MLOAD`, `CREATE`, `KECCAK256`
+
+Rational for this was mainly constraints on time. Some of these opcodes have code written to be more semantically correct, but got disabled because of stability issues. For instance memory opcodes, but also many of the arithmetic opcodes.
+
+## Current Limitations
+- **Call separation disabled**: Nested calls share stack space
+- **No memory model**: Memory operations are mostly no-ops
+- **No precompile support**
+
+## Opcodes we have implemented
 List of all opcodes and whether we have implemented them.
 
 | Opcode                    | Name           | Description                                                                                                                                                  | Implemented |
@@ -15,72 +25,72 @@ List of all opcodes and whether we have implemented them.
 | [`0x02`](#mul)            | MUL            | Multiplication operation                                                                                                                                     | x           |
 | [`0x03`](#sub)            | SUB            | Subtraction operation                                                                                                                                        | x           |
 | [`0x04`](#div)            | DIV            | Integer division operation                                                                                                                                   | x           |
-| [`0x05`](#sdiv)           | SDIV           | Signed integer division operation (truncated)                                                                                                                |             |
-| [`0x06`](#mod)            | MOD            | Modulo remainder operation                                                                                                                                   |             |
-| [`0x07`](#smod)           | SMOD           | Signed modulo remainder operation                                                                                                                            |             |
-| [`0x08`](#addmod)         | ADDMOD         | Modulo addition operation                                                                                                                                    |             |
-| [`0x09`](#mulmod)         | MULMOD         | Modulo multiplication operation                                                                                                                              |             |
-| [`0x0a`](#exp)            | EXP            | Exponential operation                                                                                                                                        |             |
-| [`0x0b`](#signextend)     | SIGNEXTEND     | Extend length of two's complement signed integer                                                                                                             |             |
+| [`0x05`](#sdiv)           | SDIV           | Signed integer division operation (truncated)                                                                                                                | x           |
+| [`0x06`](#mod)            | MOD            | Modulo remainder operation                                                                                                                                   | x           |
+| [`0x07`](#smod)           | SMOD           | Signed modulo remainder operation                                                                                                                            | x           |
+| [`0x08`](#addmod)         | ADDMOD         | Modulo addition operation                                                                                                                                    | x           |
+| [`0x09`](#mulmod)         | MULMOD         | Modulo multiplication operation                                                                                                                              | x           |
+| [`0x0a`](#exp)            | EXP            | Exponential operation                                                                                                                                        | x           |
+| [`0x0b`](#signextend)     | SIGNEXTEND     | Extend length of two's complement signed integer                                                                                                             | x           |
 | `0x0c` - `0x0f`           | Unused         | Unused                                                                                                                                                       |             |
 | [`0x10`](#lt)             | LT             | Less-than comparison                                                                                                                                         | x           |
 | [`0x11`](#gt)             | GT             | Greater-than comparison                                                                                                                                      | x           |
 | [`0x12`](#slt)            | SLT            | Signed less-than comparison                                                                                                                                  | x           |
-| [`0x13`](#sgt)            | SGT            | Signed greater-than comparison                                                                                                                               |             |
+| [`0x13`](#sgt)            | SGT            | Signed greater-than comparison                                                                                                                               | x           |
 | [`0x14`](#eq)             | EQ             | Equality comparison                                                                                                                                          | x           |
 | [`0x15`](#iszero)         | ISZERO         | Simple not operator                                                                                                                                          | x           |
 | [`0x16`](#and)            | AND            | Bitwise AND operation                                                                                                                                        | x           |
 | [`0x17`](#or)             | OR             | Bitwise OR operation                                                                                                                                         | x           |
 | [`0x18`](#xor)            | XOR            | Bitwise XOR operation                                                                                                                                        | x           |
 | [`0x19`](#not)            | NOT            | Bitwise NOT operation                                                                                                                                        | x           |
-| [`0x1a`](#byte)           | BYTE           | Retrieve single byte from word                                                                                                                               |             |
+| [`0x1a`](#byte)           | BYTE           | Retrieve single byte from word                                                                                                                               | x           |
 | [`0x1b`](#shl)            | SHL            | Shift Left                                                                                                                                                   | x           |
 | [`0x1c`](#shr)            | SHR            | Logical Shift Right                                                                                                                                          | x           |
-| [`0x1d`](#sar)            | SAR            | Arithmetic Shift Right                                                                                                                                       |             |
-| [`0x20`](#keccak256)      | KECCAK256      | Compute Keccak-256 hash                                                                                                                                      |             |
+| [`0x1d`](#sar)            | SAR            | Arithmetic Shift Right                                                                                                                                       | x           |
+| [`0x20`](#keccak256)      | KECCAK256      | Compute Keccak-256 hash                                                                                                                                      | x           |
 | `0x21` - `0x2f`           | Unused         | Unused                                                                                                                                                       |             |
 | [`0x30`](#address)        | ADDRESS        | Get address of currently executing account                                                                                                                   | x           |
-| [`0x31`](#balance)        | BALANCE        | Get balance of the given account                                                                                                                             |             |
-| [`0x32`](#origin)         | ORIGIN         | Get execution origination address                                                                                                                            |             |
-| [`0x33`](#caller)         | CALLER         | Get caller address                                                                                                                                           |             |
+| [`0x31`](#balance)        | BALANCE        | Get balance of the given account                                                                                                                             | x           |
+| [`0x32`](#origin)         | ORIGIN         | Get execution origination address                                                                                                                            | x           |
+| [`0x33`](#caller)         | CALLER         | Get caller address                                                                                                                                           | x           |
 | [`0x34`](#callvalue)      | CALLVALUE      | Get deposited value by the instruction/transaction responsible for this execution                                                                            | x           |
 | [`0x35`](#calldataload)   | CALLDATALOAD   | Get input data of current environment                                                                                                                        | x           |
 | [`0x36`](#calldatasize)   | CALLDATASIZE   | Get size of input data in current environment                                                                                                                | x           |
-| [`0x37`](#calldatacopy)   | CALLDATACOPY   | Copy input data in current environment to memory                                                                                                             |             |
-| [`0x38`](#codesize)       | CODESIZE       | Get size of code running in current environment                                                                                                              |             |
+| [`0x37`](#calldatacopy)   | CALLDATACOPY   | Copy input data in current environment to memory                                                                                                             | x           |
+| [`0x38`](#codesize)       | CODESIZE       | Get size of code running in current environment                                                                                                              | x           |
 | [`0x39`](#codecopy)       | CODECOPY       | Copy code running in current environment to memory                                                                                                           | x           |
-| [`0x3a`](#gasprice)       | GASPRICE       | Get price of gas in current environment                                                                                                                      |             |
+| [`0x3a`](#gasprice)       | GASPRICE       | Get price of gas in current environment                                                                                                                      | x           |
 | [`0x3b`](#extcodesize)    | EXTCODESIZE    | Get size of an account's code                                                                                                                                | x           |
-| [`0x3c`](#extcodecopy)    | EXTCODECOPY    | Copy an account's code to memory                                                                                                                             |             |
-| [`0x3d`](#returndatasize) | RETURNDATASIZE | Pushes the size of the return data buffer onto the stack                                                                                                     |             |
-| [`0x3e`](#returndatacopy) | RETURNDATACOPY | Copies data from the return data buffer to memory                                                                                                            |             |
-| [`0x3f`](#extcodehash)    | EXTCODEHASH    | Returns the keccak256 hash of a contract's code                                                                                                              |             |
-| [`0x40`](#blockhash)      | BLOCKHASH      | Get the hash of one of the 256 most recent complete blocks                                                                                                   |             |
-| [`0x41`](#coinbase)       | COINBASE       | Get the block's beneficiary address                                                                                                                          |             |
+| [`0x3c`](#extcodecopy)    | EXTCODECOPY    | Copy an account's code to memory                                                                                                                             | x           |
+| [`0x3d`](#returndatasize) | RETURNDATASIZE | Pushes the size of the return data buffer onto the stack                                                                                                     | x           |
+| [`0x3e`](#returndatacopy) | RETURNDATACOPY | Copies data from the return data buffer to memory                                                                                                            | x           |
+| [`0x3f`](#extcodehash)    | EXTCODEHASH    | Returns the keccak256 hash of a contract's code                                                                                                              | x           |
+| [`0x40`](#blockhash)      | BLOCKHASH      | Get the hash of one of the 256 most recent complete blocks                                                                                                   | x           |
+| [`0x41`](#coinbase)       | COINBASE       | Get the block's beneficiary address                                                                                                                          | x           |
 | [`0x42`](#timestamp)      | TIMESTAMP      | Get the block's timestamp                                                                                                                                    | x           |
-| [`0x43`](#number)         | NUMBER         | Get the block's number                                                                                                                                       |             |
-| [`0x44`](#difficulty)     | DIFFICULTY     | Get the block's difficulty                                                                                                                                   |             |
-| [`0x45`](#gaslimit)       | GASLIMIT       | Get the block's gas limit                                                                                                                                    |             |
+| [`0x43`](#number)         | NUMBER         | Get the block's number                                                                                                                                       | x           |
+| [`0x44`](#difficulty)     | DIFFICULTY     | Get the block's difficulty                                                                                                                                   | x           |
+| [`0x45`](#gaslimit)       | GASLIMIT       | Get the block's gas limit                                                                                                                                    | x           |
 | [`0x46`](#chainid)        | CHAINID        | Returns the current chain's EIP-155 unique identifier                                                                                                        | x           |
-| [`0x47`](#selfbalance)    | SELFBALANCE    | Returns the balance of the currently executing account                                                                                                       |             |
-| [`0x48`](#basefee)        | BASEFEE        | Returns the value of the base fee of the current block it is executing in.                                                                                   |             |
-| [`0x49`](#blobhash)       | BLOBHASH       | Returns the transaction blob versioned hash at the given index, or `0` if the index is greater than the number of versioned hashes                           |             |
-| [`0x4a`](#blobbasefee)    | BLOBBASEFEE    | Returns the value of the blob base fee of the current block it is executing in                                                                               |             |
+| [`0x47`](#selfbalance)    | SELFBALANCE    | Returns the balance of the currently executing account                                                                                                       | x           |
+| [`0x48`](#basefee)        | BASEFEE        | Returns the value of the base fee of the current block it is executing in.                                                                                   | x           |
+| [`0x49`](#blobhash)       | BLOBHASH       | Returns the transaction blob versioned hash at the given index, or `0` if the index is greater than the number of versioned hashes                           | x           |
+| [`0x4a`](#blobbasefee)    | BLOBBASEFEE    | Returns the value of the blob base fee of the current block it is executing in                                                                               | x           |
 | `0x4b` - `0x4f`           | Unused         | -                                                                                                                                                            |             |
 | [`0x50`](#pop)            | POP            | Remove word from stack                                                                                                                                       | x           |
 | [`0x51`](#mload)          | MLOAD          | Load word from memory                                                                                                                                        | x           |
 | [`0x52`](#mstore)         | MSTORE         | Save word to memory                                                                                                                                          | x           |
-| [`0x53`](#mstore8)        | MSTORE8        | Save byte to memory                                                                                                                                          |             |
+| [`0x53`](#mstore8)        | MSTORE8        | Save byte to memory                                                                                                                                          | x           |
 | [`0x54`](#sload)          | SLOAD          | Load word from storage                                                                                                                                       | x           |
 | [`0x55`](#sstore)         | SSTORE         | Save word to storage                                                                                                                                         | x           |
-| [`0x56`](#jump)           | JUMP           | Alter the program counter                                                                                                                                    |             |
+| [`0x56`](#jump)           | JUMP           | Alter the program counter                                                                                                                                    | x           |
 | [`0x57`](#jumpi)          | JUMPI          | Conditionally alter the program counter                                                                                                                      | x           |
-| [`0x58`](#pc)             | PC             | Get the value of the program counter prior to the increment                                                                                                  |             |
-| [`0x59`](#msize)          | MSIZE          | Get the size of active memory in bytes                                                                                                                       |             |
+| [`0x58`](#pc)             | PC             | Get the value of the program counter prior to the increment                                                                                                  | x           |
+| [`0x59`](#msize)          | MSIZE          | Get the size of active memory in bytes                                                                                                                       | x           |
 | [`0x5a`](#gas)            | GAS            | Get the amount of available gas, including the corresponding reduction for the cost of this instruction                                                      | x           |
 | [`0x5b`](#jumpdest)       | JUMPDEST       | Mark a valid destination for jumps                                                                                                                           | x           |
-| [`0x5c`](#tload)          | TLOAD          | Load word from transient storage                                                                                                                             |             |
-| [`0x5d`](#tstore)         | TSTORE         | Save word to transient storage                                                                                                                               |             |
+| [`0x5c`](#tload)          | TLOAD          | Load word from transient storage                                                                                                                             | x           |
+| [`0x5d`](#tstore)         | TSTORE         | Save word to transient storage                                                                                                                               | x           |
 | [`0x5e`](#mcopy)          | MCOPY          | Copy memory from one area to another                                                                                                                         | x           |
 | [`0x5f`](#push0)          | PUSH0          | Place the constant value 0 on stack                                                                                                                          | x           |
 | [`0x60`](#push1)          | PUSH1          | Place 1 byte item on stack                                                                                                                                   | x           |
@@ -147,11 +157,11 @@ List of all opcodes and whether we have implemented them.
 | [`0x9d`](#swap14)         | SWAP14         | Exchange 1st and 15th stack items                                                                                                                            | x           |
 | [`0x9e`](#swap15)         | SWAP15         | Exchange 1st and 16th stack items                                                                                                                            | x           |
 | [`0x9f`](#swap16)         | SWAP16         | Exchange 1st and 17th stack items                                                                                                                            | x           |
-| [`0xa0`](#log0)           | LOG0           | Append log record with no topics                                                                                                                             |             |
+| [`0xa0`](#log0)           | LOG0           | Append log record with no topics                                                                                                                             | x           |
 | [`0xa1`](#log1)           | LOG1           | Append log record with one topic                                                                                                                             | x           |
 | [`0xa2`](#log2)           | LOG2           | Append log record with two topics                                                                                                                            | x           |
 | [`0xa3`](#log3)           | LOG3           | Append log record with three topics                                                                                                                          | x           |
-| [`0xa4`](#log4)           | LOG4           | Append log record with four topics                                                                                                                           |             |
+| [`0xa4`](#log4)           | LOG4           | Append log record with four topics                                                                                                                           | x           |
 | `0xa5` - `0xaf`           | Unused         | -                                                                                                                                                            |             |
 | `0xb0`                    | JUMPTO         | Tentative [libevmasm has different numbers](https://github.com/ethereum/solidity/blob/c61610302aa2bfa029715b534719d25fe3949059/libevmasm/Instruction.h#L176) |             |
 | `0xb1`                    | JUMPIF         | Tentative                                                                                                                                                    |             |
@@ -167,15 +177,15 @@ List of all opcodes and whether we have implemented them.
 | `0xe2`                    | SSTOREBYTES    | Only referenced in pyethereum                                                                                                                                |             |
 | `0xe3`                    | SSIZE          | Only referenced in pyethereum                                                                                                                                |             |
 | `0xe4` - `0xef`           | Unused         | -                                                                                                                                                            |             |
-| [`0xf0`](#create)         | CREATE         | Create a new account with associated code                                                                                                                    |             |
-| [`0xf1`](#call)           | CALL           | Message-call into an account                                                                                                                                 |             |
-| [`0xf2`](#callcode)       | CALLCODE       | Message-call into this account with alternative account's code                                                                                               |             |
+| [`0xf0`](#create)         | CREATE         | Create a new account with associated code                                                                                                                    | x           |
+| [`0xf1`](#call)           | CALL           | Message-call into an account                                                                                                                                 | x           |
+| [`0xf2`](#callcode)       | CALLCODE       | Message-call into this account with alternative account's code                                                                                               | x           |
 | [`0xf3`](#return)         | RETURN         | Halt execution returning output data                                                                                                                         | x           |
-| [`0xf4`](#delegatecall)   | DELEGATECALL   | Message-call into this account with an alternative account's code, but persisting into this account with an alternative account's code                       |             |
-| [`0xf5`](#create2)        | CREATE2        | Create a new account and set creation address to `sha3(sender + sha3(init code)) % 2**160`                                                                   |             |
+| [`0xf4`](#delegatecall)   | DELEGATECALL   | Message-call into this account with an alternative account's code, but persisting into this account with an alternative account's code                       | x           |
+| [`0xf5`](#create2)        | CREATE2        | Create a new account and set creation address to `sha3(sender + sha3(init code)) % 2**160`                                                                   | x           |
 | `0xf6` - `0xf9`           | Unused         | -                                                                                                                                                            |             |
-| [`0xfa`](#staticcall)     | STATICCALL     | Similar to CALL, but does not modify state                                                                                                                   |             |
+| [`0xfa`](#staticcall)     | STATICCALL     | Similar to CALL, but does not modify state                                                                                                                   | x           |
 | `0xfb`                    | Unused         | -                                                                                                                                                            |             |
 | [`0xfd`](#revert)         | REVERT         | Stop execution and revert state changes, without consuming all provided gas and providing a reason                                                           | x           |
 | `0xfe`                    | INVALID        | Designated invalid instruction                                                                                                                               | x           |
-| [`0xff`](#selfdestruct)   | SELFDESTRUCT   | Sends all ETH to the target. If executed in the same transaction a contract was created, register the account for later deletion                             |             |
+| [`0xff`](#selfdestruct)   | SELFDESTRUCT   | Sends all ETH to the target. If executed in the same transaction a contract was created, register the account for later deletion                             | x           |
