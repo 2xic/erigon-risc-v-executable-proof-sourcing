@@ -14,6 +14,7 @@ Rational for this was mainly constraints on time. Some of these opcodes have cod
 - **Call separation disabled**: Nested calls share stack space
 - **No memory model**: Memory operations are mostly no-ops
 - **No precompile support**
+- **No handling of only value transfers**
 
 ## Opcodes we have implemented
 List of all opcodes and whether we have implemented them.

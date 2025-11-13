@@ -7,6 +7,31 @@ Project repository for implementing the [Erigon: RISCV Executable Proof Sourcing
 git submodule update --init --recursive
 ```
 
+### Install golang, rust and openvm
+Install [go toolchain](https://go.dev/doc/manage-install) and [Rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+
+Then to install OpenVM.
+```bash
+cargo +1.86 install --locked --git https://github.com/openvm-org/openvm.git --tag v1.4.0 cargo-openvm
+```
+
+### Install Unicorn
+```bash
+git clone https://github.com/unicorn-engine/unicorn.git
+cd unicorn
+git checkout f8c6db950420d2498700245269d0b647697c5666
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+make install
+sudo ldconfig
+```
+
+### Building
+```bash
+make bins
+```
+
 ## Resources
 
 ### Documents
@@ -26,6 +51,11 @@ Some documents that might be of interests:
 
 ### Testing Dependencies
 - [Unicorn](https://www.unicorn-engine.org/) for RISC-V emulation.
+
+### Proving using stateless execution
+- [SP1 Hypercube](https://blog.succinct.xyz/sp1-hypercube/)
+- [Ress: Scaling Ethereum with Stateless Reth Nodes](https://www.paradigm.xyz/2025/03/stateless-reth-nodes)
+- 
 
 ### ZkVm
 - [vnTinyRAM](https://blog.plan99.net/vntinyram-7b9d5b299097) - understanding zkVMs proofs from the ground up (after having read [Quadratic Arithmetic Programs: from Zero to Hero](https://medium.com/@VitalikButerin/quadratic-arithmetic-programs-from-zero-to-hero-f6d558cea649#.ghchc7urv)).
