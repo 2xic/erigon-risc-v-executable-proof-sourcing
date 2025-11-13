@@ -914,3 +914,68 @@ func TestMCopyOpcode(t *testing.T) {
 		})
 	}
 }
+
+// TODO: Fully enable test
+func TestCreate2Opcode(t *testing.T) {
+	bytecode := []byte{
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.CREATE2),
+	}
+	_, _, err := NewTestRunner(bytecode).Execute()
+	assert.NoError(t, err)
+
+	/*
+		assert.NoError(t, err)
+		assert.NotNil(t, assembly, "Assembly should not be nil")
+
+		bytecodeResult, err := assembly.ToBytecode()
+		assert.NoError(t, err)
+
+		execution, err := prover.NewUnicornRunner()
+		assert.NoError(t, err)
+		snapshot, err := execution.Execute(bytecodeResult)
+		assert.NoError(t, err)
+
+		snapShot := *snapshot.StackSnapshots
+		assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+		for i := range evmSnapshot.Snapshots {
+			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CREATE2 (instruction %d)", i))
+		}
+	*/
+}
+
+func TestCreateOpcode(t *testing.T) {
+	bytecode := []byte{
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.PUSH1), 0x00,
+		byte(vm.CREATE),
+	}
+
+	_, _, err := NewTestRunner(bytecode).Execute()
+	assert.NoError(t, err)
+
+	/*
+		assert.NoError(t, err)
+		assert.NotNil(t, assembly, "Assembly should not be nil")
+
+		bytecodeResult, err := assembly.ToBytecode()
+		assert.NoError(t, err)
+
+		execution, err := prover.NewUnicornRunner()
+		assert.NoError(t, err)
+		snapshot, err := execution.Execute(bytecodeResult)
+		assert.NoError(t, err)
+
+		snapShot := *snapshot.StackSnapshots
+		assert.Len(t, snapShot, len(evmSnapshot.Snapshots))
+
+		for i := range evmSnapshot.Snapshots {
+			assertStackEqual(t, evmSnapshot.Snapshots[i], snapShot[i], fmt.Sprintf("Failed on CREATE (instruction %d)", i))
+		}
+	*/
+}

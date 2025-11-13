@@ -260,7 +260,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	txFetchTime := time.Since(txFetchStart)
 	fmt.Printf("All transactions traced successfully in %v\n", txFetchTime)
 
-	fmt.Printf("Processing all %d traced transactions with boundaries...\n", len(results))
+	fmt.Printf("Processing all %d traced transactions...\n", len(results))
 	blockTranspiler := transpiler.NewTranspiler()
 	var allTxResults []ProofResult
 
