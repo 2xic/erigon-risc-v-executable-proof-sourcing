@@ -8,12 +8,12 @@ Many opcodes just push pre-computed results from execution traces rather than pe
 - Blockchain state: `BALANCE`, `BLOCKHASH`, `DIFFICULTY`, `BASEFEE`
 - Memory/contract ops: `MLOAD`, `CREATE`, `KECCAK256`
 
-Rational for this was mainly constraints on time. Some of these opcodes have code written to be more semantically correct, but got disabled because of stability issues. For instance memory opcodes, but also many of the arithmetic opcodes.
+Rational for this was mainly constraints on time. Some of these opcodes have code written to be more semantically correct, but got disabled because of stability issues. One insight we had later on was that computational correctness matters more than perfect semantic equivalence for the proof generation. What matters the most is the results you observe and not the intermediate representation,
 
 ## Current Limitations
 - **Call separation disabled**: Nested calls share stack space
 - **No memory model**: Memory operations are mostly no-ops
-- **No precompile support**
+- **Precompile not directly supported yet**: but it might just work because of how things are implemented for the call opcodes.
 - **No handling of only value transfers**
 
 ## Opcodes we have implemented
