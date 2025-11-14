@@ -9,14 +9,11 @@ source /root/.bashrc
 sp1up
 ```
 
-## Build the RSP
-```bash
-cargo build --release 
-```
+## Usage
+See [readme](./README.md) in parent directory for how to get the input JSON fields.
 
-## To build the guest image
 ```bash
-cargo +succinct build --release \
-  --bin my_guest \
-  --target riscv32im-succinct-zkvm-elf
+cargo run --release -- \
+    --witness "../witness-$BLOCK_NUMBER.json" \
+    --block "../block-$BLOCK_NUMBER.json"
 ```

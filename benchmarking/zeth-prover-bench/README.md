@@ -10,7 +10,11 @@ cargo build --release
 ```
 
 ### Running
+See [readme](./README.md) in parent directory for how to get the input JSON fields.
+
 ```bash
 export RISC0_PROVER=local 
-cargo run --release -- -w ../reth-witness-550-sorted.json -b ../block_23174550.json --chain-id 1
+cargo run --release -- \
+    --witness "../witness-$BLOCK_NUMBER.json" \
+    --block "../block-$BLOCK_NUMBER.json"
 ````

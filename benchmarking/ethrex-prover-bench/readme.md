@@ -24,15 +24,11 @@ sudo apt install -y pkg-config libssl-dev clang libclang-dev build-essential cma
 cargo build --release --features sp1
 ```
 
-## Data
-Currently manually fetched the witness json from this PR
-- https://etherscan.io/block/23174550
-- https://github.com/ethereum/go-ethereum/pull/32216
-
 ## Usage
+See [readme](./README.md) in parent directory for how to get the input JSON fields.
+
 ```bash
-./target/release/ethrex-prover-bench \
-  --rpc-url http://localhost:8545 \
-  --block-number 1000000 \
-  --prove
+cargo run --release -- \
+    --witness "../witness-$BLOCK_NUMBER.json" \
+    --block "../block-$BLOCK_NUMBER.json"
 ```
