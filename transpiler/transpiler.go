@@ -90,7 +90,12 @@ func (tr *Transpiler) ProcessExecution(instructions []*tracer.EvmInstructionMeta
 	for i := range instructions {
 		var resultStack *[]uint256.Int
 		if i+1 < len(instructions) {
-			resultStack = &instructions[i+1].StackSnapshot
+			// TODO: is this correct?
+			if instructions[i].Opcode == vm.CREATE2 || instructions[i].Opcode == vm.CREATE {
+				resultStack = &instructions[i+2].StackSnapshot
+			} else {
+				resultStack = &instructions[i+1].StackSnapshot
+			}
 		}
 
 		err := tr.AddInstructionWithResult(instructions[i], executionState, resultStack)
@@ -1234,6 +1239,9 @@ func (tr *Transpiler) resultFromTraceCall(resultStack *[]uint256.Int, numArgs in
 	}
 
 	a := *resultStack
+	if len(a) == 0 {
+		return nil, fmt.Errorf("%s requires result stack but it's empty", opName)
+	}
 	result := a[len(a)-1]
 	varName := tr.dataSection.Add(&result)
 	instructions = append(instructions, tr.loadFromDataSection(varName)...)

@@ -3,9 +3,11 @@ use chrono::Utc;
 use clap::Parser;
 use ethrex_common::types::ChainConfig;
 use ethrex_prover_lib::{execute, prove, to_batch_proof, backend::Backend};
+use ethrex_l2_common::prover::ProofFormat;
 use ethrex_rpc::{
     clients::eth::EthClient,
     debug::execution_witness::execution_witness_from_rpc_chain_config,
+    types::block::RpcBlock,
     types::block_identifier::BlockIdentifier,
 };
 use guest_program::input::ProgramInput;
@@ -13,7 +15,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -51,6 +53,8 @@ struct BenchmarkResult {
     execution_time_ms: u64,
     proof_time_ms: u64,
     total_time_ms: u64,
+    total_cycles: u64,
+    total_syscalls: u64,
     timestamp: String,
 }
 
@@ -87,14 +91,16 @@ async fn main() -> Result<()> {
         let result = block_data.get("result")
             .ok_or_else(|| anyhow!("Block JSON missing 'result' field"))?;
 
-        let block_number = result.get("number")
+        let block_number_hex = result.get("number")
             .and_then(|n| n.as_str())
             .ok_or_else(|| anyhow!("Block JSON missing 'number' field"))?;
-        let block_number = u64::from_str_radix(block_number.trim_start_matches("0x"), 16)
+        let block_number = u64::from_str_radix(block_number_hex.trim_start_matches("0x"), 16)
             .map_err(|e| anyhow!("Failed to parse block number: {}", e))?;
 
-        let block = serde_json::from_value(result.clone())
-            .map_err(|e| anyhow!("Failed to deserialize block data: {}", e))?;
+        let rpc_block: RpcBlock = serde_json::from_value(result.clone())
+            .map_err(|e| anyhow!("Failed to deserialize RPC block data: {}", e))?;
+        let block = rpc_block.try_into()
+            .map_err(|e: String| anyhow!("Failed to convert RpcBlock to Block: {}", e))?;
 
         (block, block_number)
     } else {
@@ -103,7 +109,8 @@ async fn main() -> Result<()> {
         let block_number = args.block_number
             .ok_or_else(|| anyhow!("--block-number is required when using RPC"))?;
 
-        let client = EthClient::new(rpc_url)
+        let url = rpc_url.parse().map_err(|e| anyhow!("Failed to parse RPC URL: {}", e))?;
+        let client = EthClient::new(url)
             .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
 
         info!("Fetching block {} from RPC...", block_number);
@@ -134,7 +141,8 @@ async fn main() -> Result<()> {
     } else {
         let rpc_url = args.rpc_url.as_ref()
             .ok_or_else(|| anyhow!("Either --witness-file or --rpc-url must be provided"))?;
-        let client = EthClient::new(rpc_url)
+        let url = rpc_url.parse().map_err(|e| anyhow!("Failed to parse RPC URL: {}", e))?;
+        let client = EthClient::new(url)
             .map_err(|e| anyhow!("Failed to create RPC client: {}", e))?;
 
         info!("Fetching execution witness from RPC...");
@@ -159,43 +167,46 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
-    // Execute
     info!("Executing with {:?} backend...", backend);
     let exec_start = Instant::now();
     let input_exec = ProgramInput {
         blocks: vec![block.clone()],
         execution_witness: execution_witness.clone(),
         elasticity_multiplier: 2,
-        fee_config: None,
+        fee_configs: None,
     };
-    execute(backend, input_exec)
+    let exec_metrics = execute(backend, input_exec)
         .map_err(|e| anyhow!("Failed to execute: {}", e))?;
     let exec_duration = exec_start.elapsed();
-    info!("✓ Execution completed in {:?}", exec_duration);
+    
+    let total_cycles = exec_metrics.total_cycles;
+    let total_syscalls = exec_metrics.total_syscalls;
+    
+    info!("Execution completed in {:?}", exec_duration);
+    info!("Total cycles: {}", total_cycles);
+    info!("Total syscalls: {}", total_syscalls);
 
-    // Prove
     info!("Generating proof with {:?} backend...", backend);
     let prove_start = Instant::now();
     let input_prove = ProgramInput {
         blocks: vec![block],
         execution_witness,
         elasticity_multiplier: 2,
-        fee_config: None,
+        fee_configs: None,
     };
-    let proof_output = prove(backend, input_prove, false)
+    let proof_output = prove(backend, input_prove, ProofFormat::Groth16)
         .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
     let prove_duration = prove_start.elapsed();
-    info!("✓ Proof generated in {:?}", prove_duration);
+    info!("Proof generated in {:?}", prove_duration);
 
-    let batch_proof = to_batch_proof(proof_output, false)
+    let batch_proof = to_batch_proof(proof_output, ProofFormat::Groth16)
         .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
     info!("Batch proof type: {:?}", batch_proof);
 
     let total_duration = fetch_duration + witness_duration + exec_duration + prove_duration;
 
-    // Create benchmark result
     let result = BenchmarkResult {
-        block_number: args.block_number,
+        block_number,
         chain_id: args.chain_id,
         backend: format!("{:?}", backend),
         fetch_time_ms: fetch_duration.as_millis() as u64,
@@ -203,15 +214,15 @@ async fn main() -> Result<()> {
         execution_time_ms: exec_duration.as_millis() as u64,
         proof_time_ms: prove_duration.as_millis() as u64,
         total_time_ms: total_duration.as_millis() as u64,
+        total_cycles,
+        total_syscalls,
         timestamp: Utc::now().to_rfc3339(),
     };
 
-    // Determine output file path
     let output_path = args.output.unwrap_or_else(|| {
         PathBuf::from(format!("{}_ethrex.json", block_number))
     });
 
-    // Write JSON output
     let json_output = serde_json::to_string_pretty(&result)
         .map_err(|e| anyhow!("Failed to serialize benchmark result: {}", e))?;
 
@@ -220,9 +231,9 @@ async fn main() -> Result<()> {
 
     info!("=== Benchmark Summary ===");
     info!("Backend: {:?}", backend);
-    info!("Block: {}", args.block_number);
-    info!("Fetch time: {:?}", Duration::from_millis(result.fetch_time_ms));
-    info!("Witness time: {:?}", Duration::from_millis(result.witness_time_ms));
+    info!("Block: {}", block_number);
+    info!("Fetch time: {:?}", fetch_duration);
+    info!("Witness time: {:?}", witness_duration);
     info!("Execution time: {:?}", exec_duration);
     info!("Proof time: {:?}", prove_duration);
     info!("Total time: {:?}", total_duration);

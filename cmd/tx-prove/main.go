@@ -31,11 +31,13 @@ func main() {
 	var txHash string
 	var outputFile string
 	var debugAssembly bool
+	var debugMode bool
 	var skipProving bool
 	var assemblyFile string
 	cmd.Flags().StringVar(&txHash, "tx-hash", "0x04d3d48f42983eb155be1ff4b66d5c5af8ed1cedecac055083a00f6e863603d2", "Transaction hash to trace (required)")
 	cmd.Flags().StringVar(&outputFile, "output", "", "Output file path (optional, defaults to stdout)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
+	cmd.Flags().BoolVar(&debugMode, "debug-mode", false, "Enable debug transpiler with detailed mappings")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled.s", "Assembly output file path (used with --debug-assembly)")
 	cmd.Flags().BoolVar(&skipProving, "skip-proving", false, "Skip proof generation")
 
@@ -80,7 +82,7 @@ func main() {
 					return nil, err
 				}
 
-				if debugAssembly {
+				if debugMode {
 					debugFile := "debug_mappings.json"
 					err = transpiler.SaveDebugMappings(debugFile)
 					if err != nil {
@@ -88,7 +90,9 @@ func main() {
 					} else {
 						fmt.Printf("Debug mappings written to: %s\n", debugFile)
 					}
+				}
 
+				if debugAssembly {
 					err := os.WriteFile(assemblyFile, []byte(content), 0644)
 					if err != nil {
 						fmt.Printf("Warning: Failed to write assembly to %s: %v\n", assemblyFile, err)

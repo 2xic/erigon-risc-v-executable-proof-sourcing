@@ -1,20 +1,19 @@
-## Zeth 
-
-### Install
+## Setup 
 ```bash
-curl -L https://risczero.com/install | bash
-rzup install rust
-rzup install cpp
+sudo apt-get install m4
 
-cargo build --release  
+curl https://sh.rustup.rs -sSf | sh
+sudo apt install build-essential -y 
+curl -L https://sp1.succinct.xyz | bash
+source /root/.bashrc
+sp1up
 ```
 
-### Running
+## Usage
 See [readme](./README.md) in parent directory for how to get the input JSON fields.
 
 ```bash
-export RISC0_PROVER=local 
 cargo run --release -- \
     --witness "../witness-$BLOCK_NUMBER.json" \
     --block "../block-$BLOCK_NUMBER.json"
-````
+```

@@ -45,12 +45,14 @@ func main() {
 	var debugMode bool
 	var skipProof bool
 	var maxTxs int
+	var useStarkProof bool
 	cmd.Flags().StringVar(&blockNumber, "block-number", "", "Block number to trace all transactions (required)")
 	cmd.Flags().BoolVar(&debugAssembly, "debug-assembly", false, "Write transpiled assembly to disk for debugging")
 	cmd.Flags().StringVar(&assemblyFile, "assembly-file", "transpiled_block.s", "Assembly output file path (used with --debug-assembly)")
 	cmd.Flags().BoolVar(&debugMode, "debug-mode", false, "Enable debug transpiler with detailed mappings")
 	cmd.Flags().BoolVar(&skipProof, "skip-proof", false, "Skip ZK proof generation to save memory")
 	cmd.Flags().IntVar(&maxTxs, "max-txs", 0, "Limit to first N transactions (0 = all transactions, useful for binary search debugging)")
+	cmd.Flags().BoolVar(&useStarkProof, "stark-proof", false, "Use STARK proof instead of app proof")
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if blockNumber == "" {
@@ -107,7 +109,7 @@ func main() {
 
 		fmt.Printf("Tracing block %d with %d transactions\n", blockNum, len(txs))
 
-		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs, blockFetchTime)
+		return processBlockAsUnit(ctx, debugAPI, blockNum, txs, debugAssembly, assemblyFile, debugMode, skipProof, maxTxs, blockFetchTime, useStarkProof)
 	}
 
 	if err := cmd.ExecuteContext(rootCtx); err != nil {
@@ -175,7 +177,7 @@ func traceTransaction(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, txHas
 	return tracerResult.GetInstructions(), tracerResult.GetExecutionState(), nil
 }
 
-func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int, blockFetchTime time.Duration) error {
+func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blockNum uint64, txs []interface{}, debugAssembly bool, assemblyFile string, debugMode bool, skipProof bool, maxTxs int, blockFetchTime time.Duration, useStarkProof bool) error {
 	fmt.Printf("Processing block %d with %d transactions using parallel tracing...\n", blockNum, len(txs))
 
 	type TraceJob struct {
@@ -258,7 +260,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	txFetchTime := time.Since(txFetchStart)
 	fmt.Printf("All transactions traced successfully in %v\n", txFetchTime)
 
-	fmt.Printf("Processing all %d traced transactions with boundaries...\n", len(results))
+	fmt.Printf("Processing all %d traced transactions...\n", len(results))
 	blockTranspiler := transpiler.NewTranspiler()
 	var allTxResults []ProofResult
 
@@ -330,7 +332,13 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 		proveStart := time.Now()
 		zkVm := prover.NewZkProver(content)
 		var err error
-		output, err = zkVm.Prove(ctx)
+		if useStarkProof {
+			fmt.Printf("Using STARK proof...\n")
+			output, err = zkVm.StarkProve(ctx)
+		} else {
+			fmt.Printf("Using app proof...\n")
+			output, err = zkVm.Prove(ctx)
+		}
 		proveTime = time.Since(proveStart)
 
 		if err != nil {
@@ -358,46 +366,48 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	}
 
 	blockResult := struct {
-		BlockNumber        uint64        `json:"block_number"`
-		TransactionCount   int           `json:"transaction_count"`
-		Transactions       []ProofResult `json:"transactions"`
-		TotalInstructions  int           `json:"total_instructions"`
-		BlockFetchTimeMs   int64         `json:"block_fetch_time_ms"`
-		TxFetchTimeMs      int64         `json:"tx_fetch_time_ms"`
-		TranspileTimeMs    int64         `json:"transpile_time_ms"`
-		AssemblyTimeMs     int64         `json:"assembly_time_ms"`
-		ProofTimeMs        int64         `json:"proof_time_ms"`
-		ProofBuildTimeMs   int64         `json:"proof_build_time_ms"`
-		ProofKeygenTimeMs  int64         `json:"proof_keygen_time_ms"`
-		ProofSetupTimeMs   int64         `json:"proof_setup_time_ms"`
-		ProofProveTimeMs   int64         `json:"proof_prove_time_ms"`
-		ProofReadTimeMs    int64         `json:"proof_read_time_ms"`
-		TotalTimeMs        int64         `json:"total_time_ms"`
-		AppVK              string        `json:"app_vk"`
-		Proof              string        `json:"proof"`
-		Timestamp          string        `json:"timestamp"`
+		BlockNumber                     uint64        `json:"block_number"`
+		TransactionCount                int           `json:"transaction_count"`
+		Transactions                    []ProofResult `json:"transactions"`
+		TotalEvmInstructions            int           `json:"total_evm_instructions"`
+		EstimatedTranspiledInstructions int64         `json:"estimated_transpiled_instructions"`
+		BlockFetchTimeMs                int64         `json:"block_fetch_time_ms"`
+		TxFetchTimeMs                   int64         `json:"tx_fetch_time_ms"`
+		TranspileTimeMs                 int64         `json:"transpile_time_ms"`
+		AssemblyTimeMs                  int64         `json:"assembly_time_ms"`
+		ProofTimeMs                     int64         `json:"proof_time_ms"`
+		ProofBuildTimeMs                int64         `json:"proof_build_time_ms"`
+		ProofKeygenTimeMs               int64         `json:"proof_keygen_time_ms"`
+		ProofSetupTimeMs                int64         `json:"proof_setup_time_ms"`
+		ProofProveTimeMs                int64         `json:"proof_prove_time_ms"`
+		ProofReadTimeMs                 int64         `json:"proof_read_time_ms"`
+		TotalTimeMs                     int64         `json:"total_time_ms"`
+		AppVK                           string        `json:"app_vk"`
+		Proof                           string        `json:"proof"`
+		Timestamp                       string        `json:"timestamp"`
 	}{
-		BlockNumber:       blockNum,
-		TransactionCount:  len(allTxResults),
-		Transactions:      allTxResults,
-		AppVK:             hex.EncodeToString(output.AppVK),
-		Proof:             hex.EncodeToString(output.Proof),
-		BlockFetchTimeMs:  blockFetchTime.Milliseconds(),
-		TxFetchTimeMs:     txFetchTime.Milliseconds(),
-		TranspileTimeMs:   transpileTime.Milliseconds(),
-		AssemblyTimeMs:    assemblyTime.Milliseconds(),
-		ProofTimeMs:       proveTime.Milliseconds(),
-		ProofBuildTimeMs:  output.Timing.BuildTimeMs,
-		ProofKeygenTimeMs: output.Timing.KeygenTimeMs,
-		ProofSetupTimeMs:  output.Timing.SetupTimeMs,
-		ProofProveTimeMs:  output.Timing.ProveTimeMs,
-		ProofReadTimeMs:   output.Timing.ReadTimeMs,
-		TotalTimeMs:       (blockFetchTime + txFetchTime + transpileTime + assemblyTime + proveTime).Milliseconds(),
-		Timestamp:         time.Now().UTC().Format(time.RFC3339),
+		BlockNumber:                     blockNum,
+		TransactionCount:                len(allTxResults),
+		Transactions:                    allTxResults,
+		EstimatedTranspiledInstructions: output.EstimatedInstructions,
+		AppVK:                           hex.EncodeToString(output.AppVK),
+		Proof:                           hex.EncodeToString(output.Proof),
+		BlockFetchTimeMs:                blockFetchTime.Milliseconds(),
+		TxFetchTimeMs:                   txFetchTime.Milliseconds(),
+		TranspileTimeMs:                 transpileTime.Milliseconds(),
+		AssemblyTimeMs:                  assemblyTime.Milliseconds(),
+		ProofTimeMs:                     proveTime.Milliseconds(),
+		ProofBuildTimeMs:                output.Timing.BuildTimeMs,
+		ProofKeygenTimeMs:               output.Timing.KeygenTimeMs,
+		ProofSetupTimeMs:                output.Timing.SetupTimeMs,
+		ProofProveTimeMs:                output.Timing.ProveTimeMs,
+		ProofReadTimeMs:                 output.Timing.ReadTimeMs,
+		TotalTimeMs:                     (blockFetchTime + txFetchTime + transpileTime + assemblyTime + proveTime).Milliseconds(),
+		Timestamp:                       time.Now().UTC().Format(time.RFC3339),
 	}
 
 	for _, txResult := range allTxResults {
-		blockResult.TotalInstructions += txResult.InstructionCount
+		blockResult.TotalEvmInstructions += txResult.InstructionCount
 	}
 
 	jsonData, err := json.MarshalIndent(blockResult, "", "  ")
@@ -414,7 +424,7 @@ func processBlockAsUnit(ctx context.Context, debugAPI *jsonrpc.DebugAPIImpl, blo
 	}
 
 	fmt.Printf("Completed block transpilation with %d transactions and %d total instructions\n",
-		len(allTxResults), blockResult.TotalInstructions)
+		len(allTxResults), blockResult.TotalEvmInstructions)
 
 	return nil
 }
