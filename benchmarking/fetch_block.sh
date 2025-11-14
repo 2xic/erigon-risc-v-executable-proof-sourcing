@@ -1,4 +1,5 @@
-BLOCK_NUMBER_DEC=23735475
+source .env
+BLOCK_NUMBER_DEC=${1:-23791194}
 BLOCK_NUMBER=$(printf "0x%x" $BLOCK_NUMBER_DEC)
 
 JSON_WITNESS=$(cat <<EOF
@@ -22,7 +23,7 @@ EOF
 )
 
 curl --request POST \
-     --url https://api.zan.top/node/v1/eth/mainnet/$API_KEY \
+     --url https://api.zan.top/node/v1/eth/mainnet/$RPC_API_KEY \
      --header 'accept: application/json' \
      --header 'content-type: application/json' \
      --data "$JSON_WITNESS" > witness-$BLOCK_NUMBER_DEC.json
@@ -30,7 +31,7 @@ curl --request POST \
 jq . witness-$BLOCK_NUMBER_DEC.json | sponge witness-$BLOCK_NUMBER_DEC.json
 
 curl --request POST \
-     --url https://api.zan.top/node/v1/eth/mainnet/$API_KEY \
+     --url https://api.zan.top/node/v1/eth/mainnet/$RPC_API_KEY \
      --header 'accept: application/json' \
      --header 'content-type: application/json' \
      --data "$JSON_BLOCK" > block-$BLOCK_NUMBER_DEC.json
