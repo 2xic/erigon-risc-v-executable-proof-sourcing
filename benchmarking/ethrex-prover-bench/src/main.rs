@@ -167,7 +167,6 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow!("Failed to convert RPC witness: {}", e))?;
 
-    // Execute with ethrex (now returns cycle counts)
     info!("Executing with {:?} backend...", backend);
     let exec_start = Instant::now();
     let input_exec = ProgramInput {
@@ -199,16 +198,6 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow!("Failed to generate proof: {}", e))?;
     let prove_duration = prove_start.elapsed();
     info!("Proof generated in {:?}", prove_duration);
-
-    match &proof_output {
-        ethrex_prover_lib::backend::ProveOutput::SP1(sp1_output) => {
-            info!("SP1 proof generated - execution report not exposed");
-            info!("Available fields: proof, vk (execution metrics not accessible)");
-        },
-        _ => {
-            info!("Backend doesn't support cycle counting");
-        }
-    }
 
     let batch_proof = to_batch_proof(proof_output, ProofFormat::Groth16)
         .map_err(|e| anyhow!("Failed to convert to batch proof: {}", e))?;
