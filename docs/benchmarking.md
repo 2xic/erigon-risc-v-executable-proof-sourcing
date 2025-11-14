@@ -69,6 +69,6 @@ cargo run --release -- \
 ## Output Parsing
 Use the provided Python scripts to parse benchmark outputs:
 - [prover_bench_output.py](../benchmarking/prover_bench_output.py) - Parse zkVM prover outputs
-- [erigion_block_output.py](../benchmarking/erigion_block_output.py) - Parse Erigon block-prover output
+- [erigon_block_output.py](../benchmarking/erigon_block_output.py) - Parse Erigon block-prover output
 
 **TODO:** ideally we improve this to output the benchmark results directly into a table to be able to run benchmarks per commit etc.
