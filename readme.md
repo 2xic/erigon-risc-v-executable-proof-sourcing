@@ -37,9 +37,10 @@ Some documents that might be of interests:
 - [The future of ZK is in RISC-V zkVMs, but the industry must be careful: how Succinct's SP1's departure from standards causes bugs](https://blog.lambdaclass.com/the-future-of-zk-is-in-risc-v-zkvms-but-the-industry-must-be-careful-how-succincts-sp1s-departure-from-standards-causes-bugs/)
 - [Ethproofs Call #4 | enshrine RISC-V?](https://www.youtube.com/watch?v=rJiEV7jJFl4)
 
-### Based rollups
-Some of the articles on Based rollups were useful as a way to think about proof assumptions. They aren't fully related to the project, but as I found them useful when working on this project I'm sharing.
+### Native rollups
+Some of the articles on Native rollups were useful as a way to think about proof assumptions. They aren't fully related to the project, but as I found them useful when working on this project I'm sharing.
 - [Native rollups—superpowers from L1 execution](https://ethresear.ch/t/native-rollups-superpowers-from-l1-execution/21517)
+- [Revisit Native Rollups](https://paragraph.com/@taiko-labs/revisit-native-rollups)
 - [Revisit Native Rollups](https://paragraph.com/@taiko-labs/revisit-native-rollups)
 
 
